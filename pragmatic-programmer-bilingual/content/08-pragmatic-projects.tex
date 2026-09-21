@@ -1,0 +1,353 @@
+% ============================================================
+%  第 8 章 双语导读 —— Pragmatic Projects
+%  形式：中文概述 + 关键原句短引用 + 解读 + 实践清单
+% ============================================================
+
+\chapter{Pragmatic Projects}
+\markboth{Chapter 8}{Pragmatic Projects}
+
+\begin{center}
+{\large\color{ppblue} 务实的项目}
+\end{center}
+
+\begin{bitext}
+\src{As your project gets under way, we need to move away from issues of
+individual philosophy and coding to talk about larger, project-sized
+issues.}
+\tgt{当项目开始推进，我们就得从个人的哲学与编码问题，转向更宏观的、项目层面的
+问题。}
+\end{bitext}
+
+\noindent{\small 本章不再讲个人技巧，而讲几个决定项目成败的关键领域：多人协作
+（务实团队）、让流程自动可靠（自动化）、项目级的测试哲学（无情测试）、文档
+（都是写作）、管理期望，以及最后一条——为自己的作品署名。}
+
+\vspace{0.5em}
+
+% ------------------------------------------------------------
+\sechead{41. Pragmatic Teams}{务实团队 \textnormal{\small（TIP 60）}}
+
+\begin{ideabox}
+前面讲的务实技巧都服务于\emph{个人}。它们适用于团队吗？答案是响亮的「是」——
+务实个人的优势，在一个务实团队里会成倍放大。作者把前几节的理念逐条「重述」到
+团队层面。
+\end{ideabox}
+
+\begin{bitext}
+\src{At Group L, Stoffel oversees six first-rate programmers, a managerial
+challenge roughly comparable to herding cats.
+\upshape\small\hfill---The Washington Post Magazine, 1985}
+\tgt{在 L 组，Stoffel 管着六位一流程序员——这 managerial 挑战，大致相当于「放猫」。}
+\end{bitext}
+
+\commentary{作者把前面各节重述到团队：\textbf{不容破窗}（质量是团队的事，团队必须共同
+承担产品质量责任，支持理解「不留破窗」理念的成员；设「质量官」把责任外包是荒谬的——
+质量只能来自每个成员）；\textbf{温水青蛙}（团队比个人更容易被「煮熟」：人们以为
+「别人会处理」「组长应该批过了」；可以指定一个「试水温的人」持续检查范围膨胀、工期缩短、
+新功能、新环境等原协议之外的变化，不必一概拒绝，但\emph{必须知道它在发生}）；
+\textbf{沟通}（团队作为整体要向外界清晰发声；好团队有鲜明的个性，文档干净一致，
+「用一个声音说话」——但\emph{对内}要鼓励激烈辩论；有个小技巧是给项目\emph{起个品牌名}
+和 Logo，给它一个可依附的身份）；\textbf{DRY}（设「项目图书管理员」或各功能的「对接人」，
+用 groupware / 内部新闻组沉淀问答，避免重复劳动）。}
+
+\begin{bitext}
+\src{\tip{60}{Organize Around Functionality, Not Job Functions}{Split your
+people into small teams, each responsible for a particular functional aspect
+of the final system.}}
+\tgt{\tip{60}{围绕功能组织，而非职务}{把人拆成小团队，每个团队负责最终系统的一个
+特定功能方面。}}
+\end{bitext}
+
+\commentary{传统团队按瀑布模型的\emph{职务}分工：业务分析师、架构师、设计师、程序员、
+测试员、文档员……还隐含着一个等级（离用户越近越资深），极端情况下甚至有「编码者不许
+跟测试员说话」这种荒谬规定。作者认为这是错的：分析、设计、编码、测试本就是\emph{同一
+问题的不同视图}，人为割裂会带来一堆麻烦——离实际用户好几层的程序员，不可能理解自己
+代码被使用的语境，也就无法做出明智决策。作者主张围绕\emph{功能}组织（功能不限于终端
+用例，数据库访问层、帮助子系统都算），用与划分代码相同的标准（凝聚、自足）来划分团队，
+并运用契约、解耦、正交等技巧，把团队整体与「变化」的影响隔离开。注意「功能划分」需要
+\emph{负责任的开发者}和\emph{强有力的项目管理}——项目至少要两个「头」：一个技术负责人
+（定风格、派任务、仲裁、盯全局），一个行政负责人（排资源、盯进度、定优先级、对外沟通）。}
+
+\begin{actions}
+\item 按\emph{功能}（而非职务）把团队拆成小、自足、可自主组织的单元。
+\item 设「试水温的人」盯住范围膨胀等变化；设图书管理员/对接人防重复。
+\item 对外用「一个声音」沟通，对内鼓励激烈辩论。
+\item 给项目起个名字和 Logo，建立团队身份。
+\end{actions}
+
+% ------------------------------------------------------------
+\sechead{42. Ubiquitous Automation}{无处不在的自动化 \textnormal{\small（TIP 61）}}
+
+\begin{ideabox}
+文明因「把越来越多重要操作变成不用思考就能完成」而进步。汽车诞生之初，发动一辆 Model-T
+福特要两页多的说明；现代汽车你只需拧钥匙——发动过程自动且万无一失。一个人照说明书操作
+可能把发动机淹了，自动启动器却不会。计算行业虽还处在「Model-T 阶段」，但我们也承受不起
+为常见操作反复走两页说明书。无论是构建发布、代码评审的文书，还是任何重复任务，
+都必须自动化。
+\end{ideabox}
+
+\begin{bitext}
+\src{Civilization advances by extending the number of important operations
+we can perform without thinking.
+\upshape\small\hfill---Alfred North Whitehead}
+\tgt{文明的进步，在于把越来越多重要操作变成无需思考即可完成。\hfill---怀特海}
+\end{bitext}
+
+\begin{bitext}
+\src{\tip{61}{Don't Use Manual Procedures}{People just aren't as repeatable
+as computers are. Nor should we expect them to be.}}
+\tgt{\tip{61}{不要用手工流程}{人就是不像计算机那样可重复，我们也不该指望人做到。}}
+\end{bitext}
+
+\commentary{作者讲了个真实案例：客户现场所有开发者用同一 IDE，系统管理员发了一份
+好几页的「安装附加包」说明（点这儿、滚那儿、拖一下、双击那个……）。结果每台机器略有
+差异，同一份代码在不同机器上表现出细微不同：bug 在一台机器出现、其他机器没有。
+手工流程把一致性交给了运气。而脚本会不厌其烦地按同样顺序执行同样的指令，还能纳入
+版本控制（这样「它以前是好的……」也能查）。自动化的好帮手：\texttt{cron}（定时无人
+值守地跑备份、夜间构建、站点维护）；用 makefile 编译（可插入代码生成钩子、自动跑回归
+测试，目标是「一条命令完成检出、构建、测试、发布」）；构建自动化（从空目录从零构建，
+标版本号、生成可分发的镜像、跑测试，通常每晚自动跑一遍完整测试——这样一旦回归测试失败，
+你能就近发现并修复，而不是三个月后才发现程序坏了）；最终构建（\texttt{make final}）。
+还有「自动化的日常文书」：夜间构建自动发布文档到内部网站（这是 DRY 的又一次应用——
+Web 上的呈现只是\emph{一个视图}）；用源码里的状态标记（如 \texttt{Status: needs\_review}）
+自动驱动代码评审的排期与审批。最后是那句「鞋匠的孩子没鞋穿」——写软件的人常用最差的
+工具干活；而我们其实有 cron、make、脚本语言这些现成材料。\emph{让计算机去做重复、
+枯燥的事吧，它比我们做得更好。}}
+
+\begin{actions}
+\item 任何重复性操作（构建、发布、评审文书）都写成脚本，纳入版本控制。
+\item 用 cron 定时跑备份、夜间构建、站点维护。
+\item 一条命令完成「检出→构建→测试→发布」。
+\item 每晚跑完整测试；文档/网站从仓库自动生成，不手工维护。
+\item 别让「鞋匠的孩子没鞋穿」——给自己做工具。
+\end{actions}
+
+% ------------------------------------------------------------
+\sechead{43. Ruthless Testing}{无情的测试 \textnormal{\small（TIP 62--66）}}
+
+\begin{ideabox}
+多数开发者讨厌测试，于是\emph{温柔地}测——潜意识里知道哪里会坏、就避开那片区域。
+务实程序员不一样：我们\emph{主动}现在就把 bug 找出来，免得日后被别人找出来时丢脸。
+找 bug 像用网捕鱼：细密的网（单元测试）捞小鱼，粗大的网（集成测试）捕食人鲨。
+\end{ideabox}
+
+\begin{bitext}
+\src{\tip{62}{Test Early. Test Often. Test Automatically.}{The earlier a bug
+is found, the cheaper it is to remedy.}}
+\tgt{\tip{62}{早测试，常测试，自动化测试}{bug 发现得越早，修复成本越低。}}
+\end{bitext}
+
+\begin{bitext}
+\src{\tip{63}{Coding Ain't Done 'Til All the Tests Run}{Just because you have
+finished hacking out a piece of code doesn't mean you can go tell your boss
+or your client that it's done. It's not.}}
+\tgt{\tip{63}{所有测试都跑通，编码才算完}{敲完一段代码，不等于你就可以去告诉老板或
+客户「做完了」。还没完。}}
+\end{bitext}
+
+\commentary{\textbf{测什么：}单元测试（其余一切测试的基础）、集成测试（子系统之间是否
+协同——它往往是系统 bug\emph{最大}的来源）、验证与确认（「用户说要这个，但这真是他们
+需要的吗？」——没有 bug 却答错问题的系统毫无用处）、资源耗尽/错误/恢复（真实世界里
+程序没有无限资源：内存、磁盘、CPU、带宽、色彩、分辨率……它会「优雅地失败」吗，
+还是当着用户的面 core dump？）、性能测试（预期并发/负载下是否达标、是否可扩展）、
+可用性测试（真实用户、真实环境；不满足可用性标准和除以零一样是 bug）。}
+
+\commentary{\textbf{怎么测：}回归测试（对比当前输出与已知值，确保今天修的 bug 没弄坏
+昨天的功能——重要的安全网）；测试数据（真实数据与合成数据\emph{都要}，各有各能暴露的
+问题——合成数据可用于压边界、造统计特性）；GUI 测试（工具化，但并非一切都能自动化，
+比如刻意非确定性的视觉效果只能人工判读；解耦设计让你能在无 GUI 情况下测业务逻辑）；
+\emph{测试你的测试}；设计/方法学度量（KK 圈复杂度、继承扇入扇出、响应集、类耦合比——
+用统计方法找「显著偏离」的模块）。}
+
+\begin{bitext}
+\src{\tip{64}{Use Saboteurs to Test Your Testing}{After you have written a
+test to detect a particular bug, cause the bug deliberately and make sure
+the test complains.}}
+\tgt{\tip{64}{用「破坏者」来测试你的测试}{写好了检测某个 bug 的测试后，\emph{故意}
+制造那个 bug，确认测试真的会报警。}}
+\end{bitext}
+
+\begin{bitext}
+\src{\tip{65}{Test State Coverage, Not Code Coverage}{Even if you do happen
+to hit every line of code, that's not the whole picture. What is important
+is the number of states your program may have.}}
+\tgt{\tip{65}{测试状态覆盖，而非代码覆盖}{即便你命中了每一行代码，那也不是全貌。
+重要的是程序可能处于的\emph{状态}数量。}}
+\end{bitext}
+
+\commentary{覆盖率工具只能给你大致感觉，别指望 100\%。作者的例子极有说服力：
+\texttt{int test(int a,int b)\{ return a/(a+b); \}} 只有三行，理论上却有 100 万个逻辑
+状态，其中 999999 个正确、1 个会崩（\texttt{a+b==0}）。「执行过这行代码」并不能告诉你
+这一点。而完整枚举状态一般是不可能的难题——难到「太阳都变成冷硬的一团了你还没解出来」。
+更关键的是：\emph{遍历代码的顺序}，影响往往比覆盖率更大。}
+
+\begin{bitext}
+\src{\tip{66}{Find Bugs Once}{Once a human tester finds a bug, it should be
+the last time a human tester finds that bug.}}
+\tgt{\tip{66}{同一个 bug 只找一次}{一旦人发现了一个 bug，这个 bug 就该是\emph{最后
+一次}由人来发现。}}
+\end{bitext}
+
+\commentary{这是作者认为测试中\emph{最重要}的概念——显而易见、几乎每本教材都这么说，
+可多数项目仍然做不到：\emph{如果一个 bug 从现有测试网里漏过去了，就必须补一个新测试
+把它兜住}。此后每次都要自动检查这个 bug，「无例外、不论多琐碎、不论开发者怎么抱怨
+『这不会再发生了』」——因为它就是会再发生。而我们没有时间去追那些自动测试本可以替我们
+找到的 bug；我们的时间要用来写新代码——和\emph{新} bug。}
+
+\begin{actions}
+\item 有代码就开测，测试代码常比生产代码还多；测试结果也要自动判读。
+\item 修好 bug 的同时补上能捕获它的回归测试（Find Bugs Once）。
+\item 写完测试后故意制造该 bug，验证测试会报警（破坏者）。
+\item 关注\emph{状态}覆盖与\emph{遍历顺序}，别迷信代码覆盖率。
+\item 压力/性能等重测试可定期跑（周/月），但必须排进日程。
+\end{actions}
+
+% ------------------------------------------------------------
+\sechead{44. It's All Writing}{一切都是写作 \textnormal{\small（TIP 67、68）}}
+
+\begin{ideabox}
+开发者通常不重视文档：好一点把它当作「不幸的必要」，差一点当成低优先级任务，
+指望管理层在项目末期忘了它。务实程序员把文档当作开发过程\emph{不可分割}的一部分。
+作者要淡化「代码 vs 文档」的二分，把它们看作\emph{同一模型的两个视图}，并把务实的
+原则同样应用到文档上。
+\end{ideabox}
+
+\begin{bitext}
+\src{The palest ink is better than the best memory.
+\upshape\small\hfill---Chinese Proverb}
+\tgt{好记性不如烂笔头。\hfill---中国谚语}
+\end{bitext}
+
+\begin{bitext}
+\src{\tip{67}{Treat English as Just Another Programming Language}{All
+documentation is a mirror of the code. If there's a discrepancy, the code
+is what matters.}}
+\tgt{\tip{67}{把英语当成另一种编程语言}{所有文档都是代码的一面镜子。若两者不一致，
+\emph{代码}才算数。}}
+\end{bitext}
+
+\commentary{文档分\emph{内部}（源码注释、设计/测试文档）与\emph{外部}（用户手册等），
+但无论读者是谁、作者是开发者还是技术写手，文档都是代码的镜像。关于\emph{代码注释}：
+注释应说明\emph{为什么}做（目的、目标），而不是\emph{如何}做——「如何」代码已经写明，
+重复它是违反 DRY 的。注释恰好适合记录那些别处无处安放的东西：工程权衡、决策原因、
+被放弃的备选方案。命名要达意（\texttt{foo}、\texttt{stuff}、\texttt{manager} 无意义；
+OO 里用匈牙利命名很糟），\emph{有误导性的名字比无意义的名字更糟}（有个叫
+\texttt{getData} 的例程其实在\emph{写}数据——人的大脑会反复被这种不一致绊倒，
+这叫 Stroop 效应）。源码注释里\emph{不该}出现：导出函数清单、修订历史、依赖文件清单、
+文件名——这些都能由工具自动维护；但\emph{作者/责任人}的名字应当出现，把责任与问责
+挂到代码上大有好处。}
+
+\begin{bitext}
+\src{\tip{68}{Build Documentation In, Don't Bolt It On}{Your document is now an
+integral part of the project development\ldots You are guaranteeing that the
+specification, schema, and code all agree.}}
+\tgt{\tip{68}{把文档做进去，而不是补上去}{你的文档现在成了项目开发不可分割的一部分……
+你保证了规格、schema 与代码三者始终一致。}}
+\end{bitext}
+
+\commentary{作者提出\emph{可执行文档}：以前同一份信息（表结构）会重复三处——
+规格说明、建表的 SQL、保存一行数据的代码记录结构，改一处另两处就过时，明显违反 DRY。
+解法是选定\emph{权威来源}（比如规格文档）作为\emph{模型}，再自动导出成不同\emph{视图}
+（数据库 schema、语言记录结构）。若文档是带标记的纯文本，用 Perl 之类抽取重排即可；
+若是私有格式，可以写宏、或让文档从属于另一个权威源。目标是\emph{永远只修改模型，
+所有视图自动更新}。作者也提醒：别把资料「扔过墙」给技术写手——写手也应遵循 DRY、
+正交、模型-视图、自动化这些原则。关于印刷 vs Web：纸张文档一印出来就可能过时，
+应尽量做成可在线的、带超链接的形态并加时间戳/版本号；同一份内容要输出多种格式时，
+\emph{内容的呈现应与内容本身独立}（用标记语言 + XSL/CSS，而非复制粘贴）。最后点题：
+文档与代码是同一底层模型的不同视图；「别让文档沦为二等公民」——用对待代码的认真劲对待
+文档，用户和后续维护者都会为你歌唱。}
+
+\begin{actions}
+\item 注释写「为什么」，而非「如何」；用有意义的变量名，杜绝误导命名。
+\item 让工具自动维护导出函数清单、修订历史、文件名、版权声明。
+\item 选定唯一权威来源，其余形态（schema、代码、手册）自动生成。
+\item 文档与代码一并纳入版本控制、一并参与夜间构建。
+\item 内容与呈现分离：一份源标记输出印刷/Web/在线帮助/幻灯片。
+\end{actions}
+
+% ------------------------------------------------------------
+\sechead{45. Great Expectations}{远大的期望 \textnormal{\small（TIP 69）}}
+
+\begin{ideabox}
+一家公司宣布创纪录的利润，股价却跌了 20\%——因为没达到分析师的\emph{预期}。
+孩子打开昂贵的圣诞礼物却哭了——因为他想要的是那个便宜的娃娃。一个团队使出浑身解数
+实现了极其复杂的应用，却因缺少帮助系统而被用户冷落。抽象地讲，一个应用只要正确实现了
+规格就算成功；可惜这只够付抽象的账单。现实中，项目的成败取决于它\emph{多大程度上满足
+了用户的期望}。
+\end{ideabox}
+
+\begin{bitext}
+\src{Be astonished, O ye heavens, at this, and be horribly afraid\ldots
+\upshape\small\hfill---Jeremiah 2:12}
+\tgt{诸天哪，要因此惊奇，极其恐慌……\hfill---《耶利米书》2:12}
+\end{bitext}
+
+\begin{bitext}
+\src{\tip{69}{Gently Exceed Your Users' Expectations}{If you work closely with
+your users\ldots there will be few surprises when the project gets delivered.
+This is a BAD THING. Try to surprise your users. Not scare them, but delight
+them.}}
+\tgt{\tip{69}{温和地超越用户的期望}{若你与用户紧密合作……交付时就不会有什么意外。
+这其实是件\emph{坏事}。试着给用户惊喜——不是惊吓，而是愉悦。}}
+\end{bitext}
+
+\commentary{用户带着某种愿景来找你——可能不完整、不一致、技术上不可能，但那是\emph{他
+的}愿景，投入了情感（像圣诞节的孩子的期待），你\emph{不能}置之不理。有些顾问把这叫
+「管理期望」（主动控制用户能指望得到什么），作者认为那有点精英主义：\emph{我们的职责
+不是控制用户的希望}，而是与他们一起，对开发过程和最终交付物达成共识，包括那些他们
+还没说出口的期望。最有助于此的两项技术是\emph{曳光弹}和\emph{原型}——都让团队做出
+用户能\emph{看见}的东西，是沟通理解、练习彼此交流的理想方式。}
+
+\begin{actions}
+\item 全程与用户一起校准期望，包括他们还没说出口的。
+\item 用曳光弹/原型让用户尽早看到实物。
+\item 在期望之上\emph{温和地}多做一点：ToolTip、快捷键、速查卡、彩色化、安装自动化、
+日志分析器、系统自检工具、定制启动画面……小小善意，回报丰厚。
+\item 加这些「惊喜」时，别把系统搞坏。
+\end{actions}
+
+% ------------------------------------------------------------
+\sechead{46. Pride and Prejudice}{骄傲与偏见 \textnormal{\small（TIP 70）}}
+
+\begin{ideabox}
+务实程序员不逃避责任，反而乐于接受挑战、乐于让自己的专业能力为人所知。若我们为某个
+设计或某段代码负责，就要做出一份\emph{自己引以为傲}的工作。早年的工匠以在作品上署名
+为荣；你也应当如此。
+\end{ideabox}
+
+\begin{bitext}
+\src{You have delighted us long enough.
+\upshape\small\hfill---Jane Austen, \emph{Pride and Prejudice}}
+\tgt{你让我们高兴得够久了。\hfill---简·奥斯汀《傲慢与偏见》}
+\end{bitext}
+
+\begin{bitext}
+\src{\tip{70}{Sign Your Work}{Your signature should come to be recognized as
+an indicator of quality.}}
+\tgt{\tip{70}{为你的作品署名}{你的署名，应当逐渐成为品质的标志。}}
+\end{bitext}
+
+\commentary{署名也可能带来麻烦：\emph{代码所有权}若处理不好，会让人变得有领地意识、
+不愿碰公共基础设施，项目碎成一堆小封地，你开始偏袒自己的代码、敌视同事的代码——
+那正是书名里的「偏见」。作者的意思不是这个：不要\emph{嫉妒地}守护你的代码不让别人碰，
+同样，也要\emph{尊重}别人的代码；「黄金法则」与开发者之间相互尊重，是这一条能奏效的
+前提。另一方面，\emph{匿名}（尤其在大项目里）是马虎、错误、懒惰和烂代码的温床——
+太容易把自己当成一颗螺丝钉，在没完没了的状态报告里找蹩脚的借口，而不是写好代码。
+代码当然要被「拥有」，但不必由\emph{个人}拥有——Kent Beck 的极限编程就主张\emph{共同
+拥有}代码（不过需要结对编程等额外实践来对抗匿名带来的危险）。作者想要的是\emph{所有者
+的骄傲}：「这是我写的，我为我的作品负责。」当人们看到你的名字，会期待那是一段扎实、
+优雅、经过测试、有文档的代码——一份真正专业的作品，出自一位真正的专业人士，
+一位 Pragmatic Programmer。}
+
+\begin{actions}
+\item 为你负责的代码署名，并为它负责到底。
+\item 不要嫉妒地守护自己的代码，也别怠慢别人的代码（黄金法则）。
+\item 以「别人看到你的名字就信任这段代码」为目标。
+\item 若采用集体代码所有权，配套结对等实践，防止匿名带来的松懈。
+\end{actions}
+
+\vspace{0.8em}
+\begin{center}
+\small\itshape\color{ppgray}
+第 8 章导读完。至此全书八章导读收官，TIP 1--70 的完整标题对照见附录 A。
+\end{center}

@@ -1,0 +1,238 @@
+% ============================================================
+%  第 4 章 双语导读 —— Pragmatic Paranoia
+%  形式：中文概述 + 关键原句短引用 + 解读 + 实践清单
+% ============================================================
+
+\chapter{Pragmatic Paranoia}
+\markboth{Chapter 4}{Pragmatic Paranoia}
+
+\begin{center}
+{\large\color{ppblue} 务实的偏执}
+\end{center}
+
+\begin{bitext}
+\src{\tip{30}{You Can't Write Perfect Software}{No one in the brief history
+of computing has ever written a piece of perfect software. It's unlikely
+that you'll be the first.}}
+\tgt{\tip{30}{你写不出完美的软件}{在计算机短暂的历史上，没有人写出过完美的软件。
+你也不太可能是第一个。}}
+\end{bitext}
+
+\noindent{\small 本章的基调是\emph{防御性编程}。作者用开车作比：每个人都觉得自己是
+世上唯一的好司机，所以我们对别人「防御性驾驶」。编码也一样——我们不断与他人的代码
+打交道、处理可能无效的输入，于是学会了校验、断言、约束。但务实程序员更进一步：
+\emph{连自己也不信任}，主动写出防范自身错误的代码。这就是本章五节的主题。}
+
+\begin{bitext}
+\src{When everybody actually is out to get you, paranoia is just good
+thinking.\upshape\small\hfill---Woody Allen}
+\tgt{当所有人真的都在针对你时，偏执只是一种健全的思考。\hfill---伍迪·艾伦}
+\end{bitext}
+
+\vspace{0.5em}
+
+% ------------------------------------------------------------
+\sechead{21. Design by Contract}{契约式设计 \textnormal{\small（TIP 31）}}
+
+\begin{ideabox}
+人类几千年来解决「不耍赖」的办法之一是\emph{契约}：它界定双方的权利与责任，
+以及违约后果。既然契约能帮人打交道，能不能用它帮软件模块打交道？能。Bertrand Meyer
+为 Eiffel 语言提出了\textbf{契约式设计}（DBC）：把模块的权利与责任\emph{文档化并达成
+一致}，以保证程序正确。何为正确的程序？——\emph{不多做也不少于它声称要做的事}。
+\end{ideabox}
+
+\begin{bitext}
+\src{Nothing astonishes men so much as common sense and plain dealing.
+\upshape\small\hfill---Ralph Waldo Emerson}
+\tgt{没有什么比常识和坦荡更让人惊讶的了。\hfill---爱默生}
+\end{bitext}
+
+\commentary{DBC 的三个要素：\textbf{前置条件}（Preconditions）：调用方必须满足什么，
+即例程的\emph{要求}——违反前置条件时例程\emph{绝不该}被调用，传对数据是\emph{调用方}的
+责任；\textbf{后置条件}（Postconditions）：例程保证做什么，即完成时的状态——有后置条件
+就意味着例程会\emph{终止}（不允许死循环）；\textbf{类不变式}（Class invariants）：
+从调用方视角看，类始终保证成立的条件——例程内部可以不满足，但返回控制权之前必须重新
+成立。}
+
+\begin{bitext}
+\src{If all the routine's preconditions are met by the caller, the routine
+shall guarantee that all postconditions and invariants will be true when
+it completes.}
+\tgt{只要调用方满足了例程的全部前置条件，例程就保证在完成时让所有后置条件与不变式
+成立。}
+\end{bitext}
+
+\begin{bitext}
+\src{\tip{31}{Design with Contracts}{Be strict in what you will accept
+before you begin, and promise as little as possible in return.}}
+\tgt{\tip{31}{用契约来设计}{开始之前，对你所接受的东西要严格；作为回报，承诺得越少
+越好。}}
+\end{bitext}
+
+\commentary{作者把契约和「懒惰的代码」联系起来：如果契约声称「什么输入都接受、回报
+包治百病」，那你可有的写了。他还讲了契约在\emph{继承与多态}上的威力——这正是\textbf{里氏替换原则}（Liskov Substitution Principle）的用武之地：
+「Subclasses must be usable through the base class interface without the
+need for the user to know the difference.」子类必须能通过基类接口使用，而用户
+无需知道差别。契约只需在基类写一次，就自动适用于所有未来子类；子类可以接受\emph{更宽}
+的输入或做出\emph{更强}的保证，但至少要接受和保证得跟父类一样多。作者举
+\texttt{java.awt.Component} 为例：你无法阻止有人写一个「名字对、行为错」的
+\texttt{setFont}，但有了契约 \texttt{@post getFont() == f}，就能保证「你设的字体就是
+你得到的字体」。}
+
+\commentary{实现层面，作者很务实：\textbf{DBC 最大的价值也许是逼你在设计阶段就正视
+需求与保证}——说清楚输入域、边界条件、例程承诺\emph{以及不承诺}什么，这本身就是巨大
+进步；不写清楚，就退回到「靠巧合编程」。没有语言支持时，把契约写成注释也有真实价值。
+用断言可以部分模拟 DBC，但有几处做不到：无法沿继承层次传播、没有「方法入口时的旧值」
+概念、运行时库不检查（而问题恰恰常发生在代码与库的边界上）。Eiffel/Sather 等由编译器
+和运行时自动检查；C/C++/Java 靠预处理器（Nana、iContract）从特殊注释生成校验代码。
+作者还给了一个漂亮的「语义不变式」例子：借记卡交易系统要求「同一笔交易绝不重复入账」，
+他们把它写成一句清晰无歧义的规则——\emph{Err in favor of the consumer}（出错了倾向于
+消费者）。}
+
+\begin{actions}
+\item 设计每个对外方法时，明确写出前置/后置条件与类不变式（哪怕只是注释）。
+\item 前置条件用来约束「不该发生的事」，\emph{不要}拿它做用户输入校验。
+\item 子类只能放宽输入、加强保证，不能反着来。
+\item 把「绝不可违反」的核心规则提炼成一句无歧义的语义不变式，写进文档。
+\end{actions}
+
+% ------------------------------------------------------------
+\sechead{22. Dead Programs Tell No Lies}{死程序不说谎 \textnormal{\small（TIP 32）}}
+
+\begin{ideabox}
+别人有时比你自己更早发现你状态不对；代码也一样。一个跑偏的指针可能覆盖了文件句柄，
+下一次 \texttt{read} 才暴露；缓冲区溢出可能毁掉了计数器，直到 \texttt{malloc} 失败。
+我们很容易陷入「这不可能发生」的心态，从而漏掉本该检查的错误。作者的主张是：
+\emph{只要出现错误，就说明一定发生了非常糟糕的事}。
+\end{ideabox}
+
+\begin{bitext}
+\src{\tip{32}{Crash Early}{A dead program normally does a lot less damage
+than a crippled one.}}
+\tgt{\tip{32}{尽早崩溃}{一个\emph{死掉}的程序，通常比一个\emph{瘸着}的程序造成的
+损害小得多。}}
+\end{bitext}
+
+\commentary{「崩溃，而不是带病运行」（Crash, Don't Trash）是这一节的核心。继续运行的
+代价可能是把损坏的数据写进关键数据库、让洗衣机连续甩干二十次。Java 的运行时在这点上
+做得很好：意外发生时抛 \texttt{RuntimeException}，未被捕获就一路冒到顶层、打印堆栈
+并终止。没有异常机制的语言（如 C）可以用宏包装「绝不该失败」的调用，失败就打印
+文件/行号并退出。作者承认有时不能直接退出（要释放资源、写日志、回滚事务），但基本
+原则不变：\emph{当代码发现「本该不可能」的事发生了，程序已不再可靠}，此后它做的一切
+都可疑，所以尽快终止它。}
+
+\begin{actions}
+\item 每个 \texttt{case}/\texttt{switch} 都写 \texttt{default}，用于捕捉「不可能」。
+\item 发现「本该不可能」的状态，宁可立即崩溃，也别带着脏数据继续跑。
+\item 崩溃前若需善后（释放/回滚），把善后逻辑集中写好，别变成常规流程。
+\end{actions}
+
+% ------------------------------------------------------------
+\sechead{23. Assertive Programming}{断言式编程 \textnormal{\small（TIP 33）}}
+
+\begin{ideabox}
+每个程序员早年都被灌过一句咒语：「这（里）绝不可能发生」——「这段代码 30 年后早不用了，
+两位年份够了」「这程序不会用到国外，国际化干啥」「count 不可能是负的」。作者说：
+别自欺，尤其在写代码的时候。
+\end{ideabox}
+
+\begin{bitext}
+\src{\tip{33}{If It Can't Happen, Use Assertions to Ensure That It Won't}{Whenever
+you find yourself thinking ``but of course that could never happen,'' add
+code to check it.}}
+\tgt{\tip{33}{若不可能发生，就用断言确保它不会}{每当你冒出「这当然不可能发生」的
+念头时，就加一段代码去检查它。}}
+\end{bitext}
+
+\commentary{断言（assert）检查一个布尔条件。两条铁律：\emph{断言里的条件不能有副作用}
+（否则你会造出改了行为才复现的 Heisenbug——作者举了在 \texttt{ASSERT} 里调用
+\texttt{nextElement()} 导致循环只处理一半元素的例子）；\emph{断言不代替真正的错误
+处理}——不要用它校验用户输入（\texttt{assert(ch=='Y'||ch=='N')} 是坏主意）。另外，
+断言可能被编译关闭，所以绝不要把必须执行的代码放进 assert。}
+
+\commentary{作者特别反对「上线就关断言」的常见做法。这种说法有两个错误假设：一是以为
+测试能覆盖所有 bug（复杂程序连极小比例的排列都测不完），二是忘了程序跑在一个危险的
+真实世界里——测试时不会有老鼠咬断电缆，但生产环境里日志可能写满硬盘。他打了个绝妙的
+比方：「Turning off assertions\ldots is like crossing a high wire without a net
+because you once made it across in practice.」——因为练习时走过去过，就走钢丝不
+挂网，戏剧性十足，但很难买到人寿保险。真有性能问题，也只关掉\emph{确实}拖慢你的那
+几条断言。}
+
+\begin{actions}
+\item 把「这不可能」逐条改写成一句断言。
+\item 确保断言条件无副作用，且不承担真实错误处理。
+\item 交付时保留断言；若必须关，只关真正影响性能的那几条。
+\end{actions}
+
+% ------------------------------------------------------------
+\sechead{24. When to Use Exceptions}{何时使用异常 \textnormal{\small（TIP 34）}}
+
+\begin{ideabox}
+「检查每个可能的错误」在实践中会让正常逻辑被错误处理淹没——作者贴了一段层层嵌套
+\texttt{if/else} 的代码，正常流程几乎看不见。用异常重写后，「正常控制流」变得清晰，
+所有错误处理被收拢到一处。问题在于：\emph{什么才算「异常」}？
+\end{ideabox}
+
+\begin{bitext}
+\src{\tip{34}{Use Exceptions for Exceptional Problems}{An exception represents
+an immediate, nonlocal transfer of control---it's a kind of cascading goto.}}
+\tgt{\tip{34}{用异常处理异常问题}{异常是一种立即的、非局部的控制转移——它是一种
+\emph{级联的 goto}。}}
+\end{bitext}
+
+\commentary{作者的判据很实用：异常应当\emph{很少}用于程序的正常流程，应留给意外事件。
+检验方法是假设「未捕获的异常会终止程序」，然后问自己：\emph{若把所有异常处理器都去掉，
+这段代码还能正常跑吗？}若答案是否定的，说明异常被用在了非异常的场景。以「打开文件失败」
+为例，答案取决于语境：\texttt{/etc/passwd} \emph{本应}存在，打不开就是异常（意外）；
+而用户从命令行指定的文件，本就不知道是否存在，找不到不算异常，应返回错误码。正因为
+异常是「级联 goto」，把它当常规流程用会带来意大利面条式的可读性/可维护性问题，还会
+破坏封装——例程与调用方因异常处理而耦合更紧。}
+
+\begin{actions}
+\item 异常只留给「意外」；可预期的失败用返回码。
+\item 用「去掉所有 handler 还能正常跑吗」来检验是否滥用了异常。
+\item 别让异常成为跨越正常控制流的手段。
+\end{actions}
+
+% ------------------------------------------------------------
+\sechead{25. How to Balance Resources}{如何平衡资源 \textnormal{\small（TIP 35）}}
+
+\begin{ideabox}
+我们写代码时都在管理资源：内存、事务、线程、文件、定时器——都是有限的东西。多数时候
+用法有固定模式：分配 → 使用 → 释放。但很多开发者没有一致的计划。作者给出一个简单
+原则：\emph{谁分配，谁释放}。
+\end{ideabox}
+
+\begin{bitext}
+\src{\tip{35}{Finish What You Start}{The routine or object that allocates a
+resource should be responsible for deallocating it.}}
+\tgt{\tip{35}{有始有终}{分配资源的例程或对象，应当负责释放它。}}
+\end{bitext}
+
+\commentary{作者用反面例子说明：\texttt{readCustomer} 打开文件并把句柄存进\emph{全局}
+变量，\texttt{writeCustomer} 用它并在末尾关闭——两个例程通过全局变量紧耦合。当需求
+变成「只在余额非负时更新」后，某条路径不再调用 \texttt{writeCustomer}，文件就永远
+不关，生产环境跑几小时就「打开文件过多」而崩。把关闭动作挪到调用方是治标不治本（变成
+三个例程耦合）。正确的重构是\emph{把文件句柄作为参数传递，由最外层的
+\texttt{updateCustomer} 负责 open 与 close}——open 和 close 出现在同一处，
+「每次 open 必有对应 close」一目了然，全局变量也消失了。}
+
+\commentary{\textbf{嵌套分配}两条补充规则：按\emph{相反顺序}释放（避免一个资源还引用
+着另一个时被孤立）；在代码中多处分配同一组资源时，始终按\emph{相同顺序}分配（降低死锁
+风险——A 占住 r1 等 r2，同时 B 占住 r2 等 r1，两者就会永远互等）。这个模式适用于任何
+资源。面向对象语言里，可以把资源封装进类：构造获得、析构释放。C++ 里异常会干扰资源
+释放（正常路径和 catch 路径各删一次 \texttt{n}，违反 DRY），此时利用「局部对象出作用域
+自动析构」的特性——把指针换成栈上的对象即可。}
+
+\begin{actions}
+\item 谁 open 谁 close：分配与释放写在同一个作用域里。
+\item 多资源时：逆序释放；多处分配则统一顺序，防死锁。
+\item 面向对象语言：用构造/析构（或 RAII）自动平衡资源。
+\item 别用全局变量在例程之间传递资源句柄。
+\end{actions}
+
+\vspace{0.6em}
+\begin{center}
+\small\itshape\color{ppgray}
+第 4 章导读完。TIP 30--35 的完整标题对照见附录 A。
+\end{center}

@@ -1,0 +1,306 @@
+% ============================================================
+%  第 7 章 双语导读 —— Before the Project
+%  形式：中文概述 + 关键原句短引用 + 解读 + 实践清单
+% ============================================================
+
+\chapter{Before the Project}
+\markboth{Chapter 7}{Before the Project}
+
+\begin{center}
+{\large\color{ppblue} 项目之前}
+\end{center}
+
+\begin{bitext}
+\src{No matter how well thought out it is, and regardless of which
+``best practices'' it includes, no method can replace thinking.}
+\tgt{无论考虑得多周全、包含了哪些「最佳实践」，\emph{没有哪种方法能取代思考}。}
+\end{bitext}
+
+\noindent{\small 动手之前先把基本规则立好，否则项目可能还没开始就已经注定失败。
+本章按时间顺序讲项目启动前的关键问题：怎么\emph{挖掘}需求、怎么破解看似无解的难题、
+什么时候该听从「再等等」的直觉、为什么过度规约会变成陷阱，以及为什么不该被形式化
+方法和昂贵工具牵着走。}
+
+\vspace{0.5em}
+
+% ------------------------------------------------------------
+\sechead{36. The Requirements Pit}{需求陷阱 \textnormal{\small（TIP 51--54）}}
+
+\begin{ideabox}
+很多教程把需求收集说成项目的早期阶段。「收集」（gathering）一词暗示有一群快乐的
+分析师，在田园交响曲中弯腰捡起散落四周的智慧金块——好像需求\emph{本来就在那儿}，
+你只需捡起来装进篮子。可事实并非如此：需求很少浮在表面，它们通常埋在层层假设、
+误解与政治之下。
+\end{ideabox}
+
+\begin{bitext}
+\src{Perfection is achieved, not when there is nothing left to add, but when
+there is nothing left to take away.
+\upshape\small\hfill---Antoine de Saint-Exup\'ery, 1939}
+\tgt{完美不在于无可增，而在于无可减。\hfill---圣埃克苏佩里，1939}
+\end{bitext}
+
+\begin{bitext}
+\src{\tip{51}{Don't Gather Requirements---Dig for Them}{Requirements rarely
+lie on the surface. Normally, they're buried deep beneath layers of
+assumptions, misconceptions, and politics.}}
+\tgt{\tip{51}{不要收集需求——去挖掘需求}{需求很少浮在表面，它们通常深埋在层层
+假设、误解与政治之下。}}
+\end{bitext}
+
+\commentary{什么才算真正的\emph{需求}？简单说，它是「某件需要被完成之事的陈述」。
+但难点在于分清\textbf{需求、策略与实现}。用户可能说「只有员工的上级和人事部门才能
+查看该员工记录」——这其实是把\emph{业务策略}写成了绝对陈述，而策略是会变的。作者的
+建议是：把这类策略\emph{单独记录}并与需求\emph{超链接}；需求写成通用陈述
+（「只有\emph{经授权}的用户才能访问员工记录」），策略作为实现时需支持的\emph{例子}。
+微妙之差后果却重大：前者逼开发者每次访问都硬编码一个判断，后者则引导你设计一套\emph{
+访问控制系统}，策略变更时只需改那套系统的元数据。界面上的区别同样重要：「系统必须让
+你选择贷款期限」是需求；「需要一个列表框来选择」未必是——除非用户\emph{确实}非列表
+框不可。}
+
+\begin{bitext}
+\src{Requirements are not architecture. Requirements are not design, nor are
+they the user interface. Requirements are \emph{need}.}
+\tgt{需求不是架构，不是设计，也不是用户界面。需求就是\emph{需要}。}
+\end{bitext}
+
+\begin{bitext}
+\src{\tip{52}{Work with a User to Think Like a User}{Become a user\ldots Spend
+a couple of days monitoring the phones with an experienced support person.}}
+\tgt{\tip{52}{与用户共事，像用户一样思考}{\emph{去做一名用户}……跟一位有经验的
+客服一起值几天电话班。}}
+\end{bitext}
+
+\commentary{一个常被忽视的技巧：\emph{成为用户}。给客服写系统？去客服坐两天。
+在仓库待一周。除了让你看清系统真正会被怎么用，这句「我能跟着你上班一周吗？」
+还能建立信任、为沟通打下基础——注意别碍事就行。作者也强调要发现用户\emph{为什么}
+这么做，而不只是他们\emph{目前}怎么做；毕竟你的开发要解决的是他们的\emph{业务问题}，
+而非仅仅满足其字面要求。文档方面，作者介绍 Ivar Jacobson 的\emph{用例}（use case）
+概念和 Cockburn 的用例模板；并提醒别被 UML 的小人图（stick figure）误导——
+「不要做任何记号的奴隶，用最能向你的听众传达需求的方法」。}
+
+\begin{bitext}
+\src{\tip{53}{Abstractions Live Longer than Details}{It means generating
+statements such as: The system makes active use of an abstraction of DATEs.}}
+\tgt{\tip{53}{抽象比细节活得更久}{它意味着写出这样的陈述：系统主动使用 \textsf{DATE}
+的抽象。}}
+\end{bitext}
+
+\commentary{「向前看」不是要你预测未来，而是写出\emph{抽象}。作者用千年虫（Y2K）
+为戒：那并不该怪程序员，真正的原因是\emph{没能超越当前业务实践}加上\emph{违反 DRY}。
+用两位年份是当时商业惯例，最早的自动化程序只是照搬了这个习惯；但即便输入/存储必须
+用两位数字，也\emph{本该}有一个 DATE 抽象，知道「这两个数字是真实日期的缩写形式」。
+另外作者提醒警惕「需求蔓延」（requirements creep）：要\emph{跟踪}需求变更
+（谁提的、谁批的、总共批了多少），把每个新功能对进度的影响\emph{当面}指给项目发起人看——
+当项目延期一年、开始互相指责时，一份准确的「需求何时、如何膨胀」的记录会非常有用。}
+
+\begin{bitext}
+\src{\tip{54}{Use a Project Glossary}{\ldots One place that defines all the
+specific terms and vocabulary used in a project.}}
+\tgt{\tip{54}{使用项目术语表}{……一个集中的地方，定义项目中使用的一切特定术语与词汇。}}
+\end{bitext}
+
+\commentary{一开始讨论需求，用户和领域专家就会使用对\emph{他们}有特定含义的词
+（比如区分「client」和「customer」）。要建立并维护\emph{项目术语表}：它应广泛可访问
+（这正适合做成基于 Web 的文档）。作者说得很直白：如果用户和开发者用\emph{不同的词}
+指同一件事，或者更糟——用\emph{同一个词}指不同的事，这个项目就很难成功。把需求做成
+超文本文档还有个好处：不同读者各取所需（赞助人停留在高层抽象，程序员用超链接逐层
+下钻到细节）；也免得出现那种两英寸厚、没人看、一印出来就过时的《需求分析》活页夹——
+「放在网上，程序员或许才会读」。}
+
+\begin{actions}
+\item 需求写成通用的语义陈述，把易变的\emph{策略}单独记录并链接。
+\item 分清「需求 / 策略 / 实现 / 界面设计」，别把后者当前者。
+\item 亲自去做一段时间的「用户」，并追问「为什么这么做」。
+\item 建立并维护一词一义的\emph{项目术语表}，放在人人可及处。
+\item 跟踪需求蔓延：记录每个新功能对进度的影响。
+\end{actions}
+
+% ------------------------------------------------------------
+\sechead{37. Solving Impossible Puzzles}{破解无解的难题 \textnormal{\small（TIP 55）}}
+
+\begin{ideabox}
+弗吕吉亚国王戈尔迪打了一个无人能解的结，神谕说解开者将统治亚洲。亚历山大来了，
+\emph{挥剑把结砍成碎片}——不过是换了个解读需求的方式，而他最终确实统治了大部分亚洲。
+项目里也常冒出看似无解的难题：真的是那么难吗？
+\end{ideabox}
+
+\begin{bitext}
+\src{\tip{55}{Don't Think Outside the Box---Find the Box}{The key to solving
+puzzles is both to recognize the constraints placed on you and to recognize
+the degrees of freedom you do have.}}
+\tgt{\tip{55}{别跳出框框想——先找到框框}{解谜的关键，既在于认清加在你身上的\emph{约束}，
+也在于认清你\emph{实际拥有}的自由度。}}
+\end{bitext}
+
+\commentary{解「木制益智玩具」的方法：先别重复显而易见的解法，而是\emph{找出真正的
+约束}。有些约束是\emph{绝对的}（再讨厌、再蠢也必须遵守），有些只是\emph{先入之见}。
+作者举了个老酒吧把戏：拿一瓶没开过的香槟打赌你能用它喝啤酒——窍门是把瓶子倒过来，
+往瓶底凹陷处倒一点啤酒。很多软件难题也这么刁钻。「跳出框框思考」这个流行说法并不准确：
+如果「框框」就是约束与条件的边界，那么真正的技巧是\emph{找到框框}——它可能比你想象的
+大得多。}
+
+\commentary{作者的实操建议：面对貌似无解的问题，\emph{列出所有可能的路径}——再荒谬、
+再蠢也别急着排除；然后逐条追问「这条路为什么走不通？你确定吗？能证明吗？」（特洛伊木马
+就是个「新颖解」：把军队弄进围墙之城又不想被发现，正门大概一开始就被当作自杀式方案
+排除了）。接着\emph{对约束分类并排序}，像木工先切最长的料一样：先找出\emph{限制性最强}
+的约束，再让其余约束落在它之内。最后是那串关键自问：有没有更简单的办法？你在解决对
+的问题吗，还是被某个枝节带偏了？这为什么是个问题？是什么让它这么难？\emph{非得这么做吗？
+非得做吗？}很多时候，重新解读需求就能让一整批问题消失——就像戈尔迪之结。}
+
+\begin{actions}
+\item 列出所有可能路径，包括看似荒谬的；逐条追问「为什么不行、能证明吗」。
+\item 区分「绝对约束」与「先入之见」，先满足限制最强的那条。
+\item 卡住时问：非得这么做吗？非得做吗？是不是在解错的问题？
+\end{actions}
+
+% ------------------------------------------------------------
+\sechead{38. Not Until You're Ready}{没准备好就别开始 \textnormal{\small（TIP 56）}}
+
+\begin{ideabox}
+顶尖表演者有个共同点：知道何时该开始、何时该等待。跳水者站在高台上等最佳起跳时刻，
+指挥家在乐团前举着双臂、直到感觉时机对了才落下第一拍。你也是顶尖表演者——也要听从
+那个低语「等等」的声音。坐下来准备敲键盘时若心里有隐隐的不安，就听它。
+\end{ideabox}
+
+\begin{bitext}
+\src{He who hesitates is sometimes saved.
+\upshape\small\hfill---James Thurber, ``The Glass in the Field''}
+\tgt{犹豫不决的人，有时反而得救。\hfill---詹姆斯·瑟伯}
+\end{bitext}
+
+\begin{bitext}
+\src{\tip{56}{Listen to Nagging Doubts---Start When You're Ready}{When you
+feel a nagging doubt\ldots heed it. You may not be able to put your finger on
+exactly what's wrong, but give it time and your doubts will probably
+crystallize into something more solid.}}
+\tgt{\tip{56}{倾听内心的疑虑——准备好了就开始}{当你感到隐隐不安时……听从它。你也许
+说不出到底哪里不对，但给它时间，疑虑多半会凝结成更具体、可着手处理的东西。}}
+\end{bitext}
+
+\commentary{「内在网球」式的训练：反复击球并对落点做语言化的反馈，让潜意识与反射
+在不知不觉中进步。你整个职业生涯都在做类似的事——积累经验与智慧。软件开发至今还不算
+一门科学，让你的直觉也参与进来。难点在于区分\emph{好判断}与\emph{拖延}：谁都怕白纸。
+作者的办法是\emph{开始做原型}——挑一个你觉得困难的领域做概念验证。通常会有两种结果：
+其一，开始不久你就觉得浪费时间，这份无聊大概说明最初的迟疑只是想拖延——那就放弃原型、
+直接进入正式开发；其二，原型推进中你突然领悟某个基本前提错了，并且清楚看到了改正方法——
+那你的直觉是对的，果断丢掉原型、正式开工，还替团队省下了大量无用功。用原型来探察
+不安时，\emph{务必记住你为什么在做它}（最糟的是几周后才想起「我本来是在做原型啊」）。
+作者还调侃：宣布「我去做个原型」在政治上往往也比「我不想开始」然后打开纸牌游戏体面得多。}
+
+\begin{actions}
+\item 开工前有挥之不去的疑虑，先别硬上——它多半指向真问题。
+\item 用\emph{原型}来区分「好判断」与「拖延」：很快觉得无聊就去干活，突然悟到前提错了就照直觉走。
+\item 用原型探路时，始终提醒自己这是原型，别变成正式开发。
+\end{actions}
+
+% ------------------------------------------------------------
+\sechead{39. The Specification Trap}{规格说明的陷阱 \textnormal{\small（TIP 57）}}
+
+\begin{ideabox}
+程序规格说明，是把需求逐步细化到「程序员的手艺可以接手」的过程，本质上是一种\emph{
+沟通}——解释并澄清，以消除主要歧义。它既是对后续维护者的记录，也是对用户的协定。
+「写规格说明是一项沉甸甸的责任。」
+\end{ideabox}
+
+\commentary{问题在于很多设计者\emph{停不下来}，觉得非要把每个细节都钉死才算对得起
+工资。作者指出几个原因这不对：第一，\emph{天真}——以为规格能捕捉系统的每个细节与
+微妙之处；即便有形式化方法，仍需设计者向用户解释记号的含义，人的解读照样会出错；
+而且多数用户\emph{事先}并不知道自己确切要什么，他们可能在你 200 页的文档上签了字，
+但一旦看到运行的系统，变更请求就会把你淹没。第二，\emph{自然语言本身的表达力有限}——
+所有图表与形式化方法最终还得靠自然语言描述要执行的操作，而自然语言并不胜任（看看任何
+合同是如何被律师扭曲语言的）。作者出了个挑战：\emph{写一段话教别人系鞋带}。你会发现在
+「现在用拇指和食指捻一下，让绳头从左边那条鞋带下面穿过去……」附近就卡住了——这事难得
+出奇，可我们大多数人却能不假思索地系鞋带。}
+
+\begin{bitext}
+\src{\tip{57}{Some Things Are Better Done than Described}{A design that leaves
+the coder no room for interpretation robs the programming effort of any
+skill and art.}}
+\tgt{\tip{57}{有些事做胜过说}{一个不给编码者留任何解释空间的设计，剥夺了编程工作中
+所有的技巧与艺术。}}
+\end{bitext}
+
+\commentary{第三是\emph{紧身衣效应}。过度规定的设计会让程序员错过很多机会：编码时
+你常会发现「因为我是这样写的，几乎不费劲就能加个额外功能」或「规格说要这样做，
+但换个做法结果几乎一样、还能省一半时间」。有这种过度规定，你\emph{连机会都看不到}。
+作者主张把需求收集、设计、实现看作同一过程（交付高质量系统）的不同侧面，采取\emph{
+无缝}的方式，让它们直接流入下一步、没有人为边界，并让实现与测试的反馈回流到规格过程。
+他并不反对写规格（有些场合——合同、特定环境、产品性质——确实需要极详细的规格），
+只是提醒：\emph{细节越多，回报递减甚至为负}；也别在毫无实现或原型支撑的情况下层层
+堆叠规格——那样极易规定出根本造不出来的东西。最后警告：规格一旦变成保护开发者免受
+「写代码这个可怕世界」的安全毯，就越难走出来；团队若都裹在温暖舒服的规格里，
+就把他们拉出来——去看原型、或考虑曳光弹式开发。\emph{该开始写代码了！}}
+
+\begin{actions}
+\item 规格适可而止：达到清晰所需即可，别追求穷尽细节。
+\item 别在无实现/原型支撑时层层叠加规格——先做出来看。
+\item 让实现与测试的反馈回流到规格；警惕规格变成逃避编码的安全毯。
+\end{actions}
+
+% ------------------------------------------------------------
+\sechead{40. Circles and Arrows}{圆圈与箭头 \textnormal{\small（TIP 58、59）}}
+
+\begin{ideabox}
+从结构化编程、主程序员团队、CASE 工具、瀑布模型、螺旋模型，到 Jackson、ER 图、
+Booch 云、OMT、UML……计算界从不缺「让编程更像工程」的方法。每种方法都招来信徒、
+红极一时，然后被下一种取代。作者形容一些开发者像海难幸存者抓住漂来的木头：每漂来
+一块新的就拼命游过去，指望它更好——可无论木头多好，人依旧在原地漫无目的地漂流。
+\end{ideabox}
+
+\begin{bitext}
+\src{[with] circles and arrows and a paragraph on the back of each one
+explaining what each one was, to be used as evidence against us\ldots
+\upshape\small\hfill---Arlo Guthrie, ``Alice's Restaurant''}
+\tgt{（照片上）画着圆圈和箭头，每张背面还写段话说明那是什么，好拿来当我们
+（受审）的证据……\hfill---阿尔洛·格思里《爱丽丝的餐馆》}
+\end{bitext}
+
+\begin{bitext}
+\src{\tip{58}{Don't Be a Slave to Formal Methods}{Never become a slave to a
+methodology: circles and arrows make poor masters.}}
+\tgt{\tip{58}{不要做形式化方法的奴隶}{永远别做方法论的奴隶——圆圈和箭头不是好主子。}}
+\end{bitext}
+
+\commentary{形式化方法的几处硬伤：\emph{多数用图表 + 少量文字捕捉需求}，这些图表达的是
+设计者的理解，往往对最终用户毫无意义，于是设计者得去解释——\emph{用户并没有真正在
+「形式化地」校验需求}，一切仍基于设计者的说明；作者更倾向于\emph{给用户看原型让他们玩}。
+其次，形式化方法\emph{鼓励分工割裂}——一组设计数据模型、一组看架构、一组收用例——
+他们见过这导致沟通不畅与浪费，还容易退回「设计者 vs 编码者」的对立心态；作者更愿意
+理解系统的\emph{整体}。第三，作者喜欢可适配的动态系统（用元数据在运行时改变应用特性），
+而多数形式化方法把静态对象/数据模型与某种事件图结合，\emph{没看到一种能表达他们所需的
+动态性}——反而会\emph{误导}你在本该动态编织的对象之间建立静态关系。}
+
+\commentary{「方法真的划算吗？」Robert Glass 在 1999 年的一篇综述里回顾了七种技术
+（4GL、结构化技术、CASE、形式化方法、净室方法、过程模型、面向对象）的生产率与质量
+改善，结论是：\emph{最初的宣传都言过其实}——即便有收益迹象，也往往要先经历显著的生产率
+与质量\emph{下降}（引入与培训期）。别低估采用新工具/方法\emph{的成本}，做好把头几个
+项目当作学习经历的准备。}
+
+\begin{bitext}
+\src{\tip{59}{Expensive Tools Do Not Produce Better Designs}{Try not to think
+about how much a tool cost when you look at its output.}}
+\tgt{\tip{59}{昂贵的工具不产生更好的设计}{看一个工具的输出时，别去想它花了多少钱。}}
+\end{bitext}
+
+\commentary{「我们该用形式化方法吗？」作者的答案出人意料地干脆：「\emph{当然该}。
+但永远记住，形式化开发方法只是工具箱里的又一件工具。」若你仔细分析后觉得需要，就拥抱它——
+但要记住\emph{谁才是主人}。务实程序员批判地看待方法论，从每种里汲取最好的部分，
+融合成一套\emph{每个月都在变好}的工作实践；要不断打磨、改进流程，绝不要把一个方法论
+的僵硬边界当作你世界的边界，也别屈服于方法的\emph{虚假权威}——别人可能带着一英亩的
+类图和 150 个用例来开会，但那堆纸仍只是他们对需求与设计\emph{可能出错}的解读。
+最后作者点破那种「类图即应用、其余只是机械编码」的项目哲学：遇到它，你就该知道，
+你面对的是一支正在沉没的团队，和一段划不回家的漫漫水路。}
+
+\begin{actions}
+\item 把形式化方法当工具箱里的一件工具，而非主人；批判性地取其精华。
+\item 别用一堆类图/用例来代替思考，也别被「方法的权威」吓住。
+\item 引入新方法前，预留学习期的生产率下降，并衡量成本。
+\item 看设计输出时，忘掉工具的价格。
+\end{actions}
+
+\vspace{0.6em}
+\begin{center}
+\small\itshape\color{ppgray}
+第 7 章导读完。TIP 51--59 的完整标题对照见附录 A。
+\end{center}

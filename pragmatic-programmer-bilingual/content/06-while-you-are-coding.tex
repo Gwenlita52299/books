@@ -1,0 +1,273 @@
+% ============================================================
+%  第 6 章 双语导读 —— While You Are Coding
+%  形式：中文概述 + 关键原句短引用 + 解读 + 实践清单
+% ============================================================
+
+\chapter{While You Are Coding}
+\markboth{Chapter 6}{While You Are Coding}
+
+\begin{center}
+{\large\color{ppblue} 编码之时}
+\end{center}
+
+\begin{bitext}
+\src{Coding is not mechanical. If it were, all the CASE tools that people
+pinned their hopes on in the early 1980s would have replaced programmers
+long ago.}
+\tgt{编码不是机械劳动。若真是，那 1980 年代初人们寄予厚望的那些 CASE 工具，
+早就该取代程序员了。}
+\end{bitext}
+
+\noindent{\small 流行的看法是：项目一旦进入编码阶段就基本是机械活——把设计「誊写」成
+可执行语句。作者认为这种态度正是许多程序丑陋、低效、结构差、难维护甚至根本不对的
+\emph{最大原因}。编码时每分钟都有需要仔细判断的决策。本章讲五件事：不要靠巧合编程、
+估算算法速度、重构、让代码易于测试、提防你不理解的「邪恶向导」。}
+
+\vspace{0.5em}
+
+% ------------------------------------------------------------
+\sechead{31. Programming by Coincidence}{靠巧合编程 \textnormal{\small（TIP 44）}}
+
+\begin{ideabox}
+老战争片里，疲惫的士兵用刺刀探前方有没有地雷——探了几下没炸，就以为安全了，
+挺直腰板大步往前走，结果被炸得粉碎。他的探雷什么也没证明，只是\emph{运气好}而已，
+却让他得出了错误结论。我们开发者也在雷区里工作：不要靠运气和偶然的成功，
+要\emph{刻意地}编程。
+\end{ideabox}
+
+\begin{bitext}
+\src{Fred doesn't know why the code is failing because he didn't know why
+it worked in the first place.}
+\tgt{Fred 不知道为什么代码坏了，因为他从一开始就不知道它\emph{为什么}能工作。}
+\end{bitext}
+
+\begin{bitext}
+\src{\tip{44}{Don't Program by Coincidence}{We should avoid programming by
+coincidence---relying on luck and accidental successes---in favor of
+programming deliberately.}}
+\tgt{\tip{44}{不要靠巧合编程}{要避免靠巧合编程——依赖运气和偶然的成功——转而\emph{
+刻意地}编程。}}
+\end{bitext}
+
+\commentary{巧合的几种来源：\textbf{实现上的偶然}——依赖未文档化的错误或边界行为；
+你按某例程对坏数据的反应写代码，作者却从没打算那样工作，等他「修好」例程，你的代码就崩了。
+作者举了连串重绘调用（\texttt{paint}、\texttt{invalidate}、\texttt{revalidate}、
+\texttt{repaint} 之类）的例子——那些例程从没被设计成那样调用，能用纯属巧合；而且事后 Fred 还舍不得把这些多余调用删掉
+（「能用就行」，这句心态很危险：它可能只是\emph{看起来}能用；边界是偶然的；未文档化
+行为可能随库的下个版本改变；多余调用让代码更慢、还引入新 bug）。\textbf{语境上的偶然}
+——你是给 GUI 写的工具模块，就非要依赖 GUI 存在吗？依赖用户说英语吗？\textbf{隐式假设}
+——需求、测试各层面都充满未记录的假设，且开发者之间常相互冲突。}
+
+\commentary{怎么「刻意」编程？时刻清楚自己在做什么（别像温水里的青蛙）；别蒙着眼睛写
+代码（不熟悉的技术/领域是巧合的温床）；从计划出发；只依赖可靠的东西；\emph{把假设写下来}
+（契约式设计）；\emph{连假设也一起测试}——不确定就真去试，用断言验证，假设对了就是给
+代码加了文档，假设错了就庆幸自己发现了；分清主次（先把基础设施做对，花哨功能才不至于
+白搭）；不要被历史绑架（现有代码不合适就该替换）。}
+
+\begin{actions}
+\item 遇到「能跑但不知道为什么」的代码，先搞清楚原因再前进。
+\item 只依赖\emph{有文档}的行为，别依赖偶然的边界表现。
+\item 把假设写成断言并测试它；不确定就实际跑一遍。
+\item 清掉那些「反正能用」的多余调用。
+\end{actions}
+
+% ------------------------------------------------------------
+\sechead{32. Algorithm Speed}{算法速度 \textnormal{\small（TIP 45、46）}}
+
+\begin{ideabox}
+除了估算走路/项目要多久，务实程序员还几乎每天估算另一件事：\emph{算法消耗的资源}
+（时间、处理器、内存）。在两种做法之间怎么选？程序处理 1000 条记录要多久你知道，
+但扩展到 100 万条呢？哪些代码需要优化？这些问题往往能用常识 + 一点分析 + 一种近似
+写法（「大 O」记号）来回答。
+\end{ideabox}
+
+\begin{bitext}
+\src{Think of the O as meaning ``on the order of.'' The O notation puts an
+upper bound on the value of the thing we're measuring.}
+\tgt{把 O 理解为「在……量级上」。O 记号为我们所度量的东西（时间、内存等）给出
+一个上界。}
+\end{bitext}
+
+\commentary{大 O 只保留最高阶项、忽略常数因子——这是它的缺点：两个都是 $O(n)$ 的算法
+可能相差一千倍，但记号上看不出来。常见量级：$O(1)$ 常数、$O(\lg n)$ 对数（二分查找）、
+$O(n)$ 线性（顺序查找）、$O(n\lg n)$（快排/堆排平均）、$O(n^2)$ 平方（选择/插入排序）、
+$O(n^3)$ 立方（矩阵乘法）、$O(2^n)$ 指数（旅行商、集合划分）。作者给了个直观的换算：
+若 $O(n)$ 处理 100 条要 1 秒，处理 1000 条就是 10 秒；而 $O(n^2)$ 要 100 秒；
+指数级的恐怕要等到「咖啡煮好、宇宙终结」。}
+
+\begin{bitext}
+\src{\tip{45}{Estimate the Order of Your Algorithms}{Whenever you find
+yourself writing a simple loop, you know that you have an O(n) algorithm.
+If that loop contains an inner loop, then you're looking at O(n\textsuperscript{2}).}}
+\tgt{\tip{45}{估算算法的量级}{每当你写一个简单循环，你就有了一个 $O(n)$ 算法；
+若循环里还套着循环，那就是 $O(n^2)$。}}
+\end{bitext}
+
+\commentary{用常识就能估出很多算法的量级：\textbf{单层循环}→$O(n)$（穷举、求最大值、
+算校验和）；\textbf{嵌套循环}→$O(n^2)$（冒泡、选择排序）；\textbf{二分}→$O(\lg n)$
+（二分查找、遍历二叉树、找机器字里第一个置位）；\textbf{分治}→$O(n\lg n)$（快排——注意
+它本名 $O(n^2)$，喂给它有序输入会退化，但平均是 $O(n\lg n)$）；\textbf{组合}→阶乘级
+（旅行商、装箱、集合划分——正是那些公认的难题）。}
+
+\begin{bitext}
+\src{\tip{46}{Test Your Estimates}{After all this estimating, the only timing
+that counts is the speed of your code, running in the production environment,
+with real data.}}
+\tgt{\tip{46}{检验你的估算}{估算归估算，唯一算数的是你的代码在\emph{生产环境}、
+用\emph{真实数据}跑出来的速度。}}
+\end{bitext}
+
+\commentary{实践上：找到 $O(n^2)$ 的算法，试着改成分治降到 $O(n\lg n)$；不确定耗时/
+内存时，就实际跑，改变输入规模、把结果画成曲线（三四个点就能看出形状）；别忘了
+\emph{实践}因素——小规模输入下线性增长，喂进去几百万条时系统开始换页抖动，时间会突然
+恶化；用随机键测试排序很顺，第一次遇到有序输入可能就傻眼。作者还提醒「最快的不一定
+最好」：小数据集上简单插入排序跟快排一样快且更好写、好调；高启动成本的算法在小输入上
+可能得不偿失。\emph{警惕过早优化}——先确认它真是瓶颈再花时间。}
+
+\begin{actions}
+\item 看到循环就下意识估量级；外层嵌套想想 $n$ 能长到多大。
+\item $O(n^2)$ 尽量找分治的 $O(n\lg n)$ 替代。
+\item 用真实数据、真实规模实测并画曲线，别只信理论。
+\item 别过早优化；也别忘了「最快的不一定最适合」。
+\end{actions}
+
+% ------------------------------------------------------------
+\sechead{33. Refactoring}{重构 \textnormal{\small（TIP 47）}}
+
+\begin{ideabox}
+程序演进过程中，重新审视早先的决定、改写部分代码是完全自然的——代码需要\emph{演化}，
+它不是一个静态的东西。作者批评「把软件开发比作建筑施工」这个最常见的隐喻：那意味着
+「建筑师画图 → 承包商建造 → 住户入住并从此幸福生活」。软件不是这样。
+\end{ideabox}
+
+\begin{bitext}
+\src{Change and decay in all around I see\ldots
+\upshape\small\hfill---H.~F.~Lyte, ``Abide With Me''}
+\tgt{环顾四周，我见到的尽是变化与衰败……\hfill---H.~F.~莱特}
+\end{bitext}
+
+\commentary{作者主张：软件更像\emph{园艺}而非建筑。你按计划和条件种下许多东西，有的茂盛、
+有的注定成堆肥；你会为了利用光影风雨而挪动植株，修剪疯长的，把撞色的移到更顺眼的地方，
+除草、施肥，持续观察花园的健康并随时调整。「建筑」的隐喻让管理者舒服（更科学、可重复、
+有清晰的汇报层级），但我们不是在建摩天大楼——我们不受物理和现实世界的边界那么强的约束。
+改写、返工、重构架构，统称为\textbf{重构}。}
+
+\begin{bitext}
+\src{\tip{47}{Refactor Early, Refactor Often}{Keep track of the things that
+need to be refactored. If you can't refactor something immediately, make
+sure that it gets placed on the schedule.}}
+\tgt{\tip{47}{尽早重构，经常重构}{记录下需要重构的地方；若不能立刻重构，务必把它
+排进日程。}}
+\end{bitext}
+
+\commentary{\textbf{何时重构？}遇到以下情况就别犹豫：\emph{重复}（违反 DRY）、
+\emph{非正交的设计}、\emph{知识过时}（需求漂移、理解加深）、\emph{性能}（需要把功能
+挪个地方）。作者用\textbf{医疗类比}说服老板：「把需要重构的代码看作一个\emph{肿瘤}。
+现在动刀，它还小；等它长大扩散再切，既更贵也更危险；再拖下去，可能连病人都保不住。」
+「没时间重构」这个借口站不住脚——现在不做，将来依赖更多时修复的代价更大。}
+
+\commentary{\textbf{怎么重构？}Martin Fowler 的三条建议：\emph{不要同时重构和加功能}；
+\emph{动手前先有好的测试，并尽可能频繁地跑}（这样出问题能马上知道）；\emph{每次迈小而
+审慎的一步}（很多局部小改动累积成一次大改动，每步都测，就不会陷入漫长调试）。测试是
+「有底气重构」的关键。还有个小技巧：让破坏性的改动（改接口、改不兼容的功能）\emph{
+让构建失败}，这样旧调用方编译不过，你能快速找出来一并更新。最后回到「软件熵」：
+别容忍破窗。}
+
+\begin{actions}
+\item 发现重复/非正交/过时/性能问题，就重构（尽早、经常）。
+\item 重构和加功能不要同时做。
+\item 先有覆盖良好的测试，再动手；每小步跑一次测试。
+\item 破坏性改动让它「编译失败」，逼出所有旧调用方。
+\end{actions}
+
+% ------------------------------------------------------------
+\sechead{34. Code That's Easy to Test}{易于测试的代码 \textnormal{\small（TIP 48、49）}}
+
+\begin{ideabox}
+「软件 IC」是个常被提起的隐喻——软件组件应像集成电路芯片一样组合。但这只在组件
+\emph{确实可靠}时才成立。而芯片天生就是\emph{为测试而设计}的：不只在出厂时、安装时，
+部署到现场后也要测（内建自测 BIST、测试访问机制 TAM）。软件也应如此：从最开始就把
+\emph{可测试性}设计进去，接起来之前先把每块测透。
+\end{ideabox}
+
+\begin{bitext}
+\src{\tip{48}{Design to Test}{When you design a module, or even a single
+routine, you should design both its contract and the code to test that
+contract.}}
+\tgt{\tip{48}{为测试而设计}{设计一个模块、甚至一个例程时，你既要设计它的\emph{契约}，
+也要设计\emph{验证该契约的测试代码}。}}
+\end{bitext}
+
+\commentary{\textbf{单元测试}相当于硬件里的芯片级测试。作者提出「\emph{针对契约测试}」：
+把单元测试看作在验证该单元是否履行契约——这既告诉你代码是否满足契约，也告诉你契约
+本身是否如你所想。以 \texttt{sqrt} 为例，它的契约直接告诉我们该测什么：传负参应被拒绝、
+传 0 应被接受（边界值）、传 (0, 最大值] 区间的值应满足误差条件。\textbf{测试顺序}也
+讲究：若模块 A 用了 LinkedList 和 Sort，应\emph{先}完整测 LinkedList、\emph{再}完整测
+Sort、\emph{最后}测 A；这样一旦 A 失败而前两者通过，就能快速定位问题在 A（或其使用
+方式），省下大量调试时间。目的是避免造出「定时炸弹」——那些潜伏到项目后期才在尴尬
+时刻爆炸的东西。}
+
+\begin{bitext}
+\src{\tip{49}{Test Your Software, or Your Users Will}{All software you write
+will be tested---if not by you and your team, then by the eventual users.}}
+\tgt{\tip{49}{你不测试，用户就会替你测试}{你写的所有软件\emph{终将被}测试——
+若不是你和团队测，那就是最终用户来测。}}
+\end{bitext}
+
+\commentary{实践细节：测试不要塞在源码树角落——\emph{找不到就不会被用}，小项目嵌入模块、
+大项目放子目录。测试本身还能充当\emph{用法示例}和\emph{回归测试}的基础。
+Java 里每个类都可以有自己的 \texttt{main} 跑单元测试（发布时被忽略，好处是出厂代码
+里仍带着测试）；C++ 里用 \texttt{\#ifdef} 选择性编译测试。写多了就该有统一的
+\emph{测试框架}（harness），应具备：标准的 setup/cleanup、选择单个或全部测试、
+分析输出是否符合预期、标准化的失败报告，且测试要\emph{可组合}（xUnit/JUnit 即为此而来）。
+调试时临时写的测试（ad hoc testing）别扔掉——代码坏过一次就可能再坏，要把它固化进
+单元测试。生产环境里的 bug 往往更刁钻，作者建议留一些「窥视内部状态」的手段：
+格式一致、可自动解析的日志；热键弹出诊断窗；甚至内嵌一个 Web 服务器用浏览器看内部状态。
+最后点出：测试更多是\emph{文化}而非技术——「Perl 社区出人意料地重视测试」就是例子。}
+
+\begin{actions}
+\item 写模块时连契约一起写测试；把边界条件列出来逐一测。
+\item 测试顺序：先测子组件，再测依赖它们的模块。
+\item 调试时临时写的测试要固化进单元测试，不要丢。
+\item 建统一的测试框架，测试可组合、可自动跑。
+\item 给生产环境留可解析的日志/诊断入口。
+\end{actions}
+
+% ------------------------------------------------------------
+\sechead{35. Evil Wizards}{邪恶的向导 \textnormal{\small（TIP 50）}}
+
+\begin{ideabox}
+应用越来越难写，界面越来越复杂。工具厂商于是抛出「银弹」—— \emph{向导}（wizard）。
+需要带 OLE 容器支持的 MDI 应用？点一个按钮、答几个问题，向导自动生成骨架代码
+（Visual C++ 一个场景就能生成 1200 多行）。向导确实好用。
+\end{ideabox}
+
+\begin{bitext}
+\src{\tip{50}{Don't Use Wizard Code You Don't Understand}{Unless Joe actually
+understands the code that has been produced on his behalf, he's fooling
+himself. He's programming by coincidence.}}
+\tgt{\tip{50}{不要用你不理解的向导代码}{除非 Joe 真正理解那些\emph{替他}生成的代码，
+否则他是在自欺欺人——他正在靠巧合编程。}}
+\end{bitext}
+
+\commentary{作者的论点：用大师设计的向导，并不会让你自动变成大师。Joe 看着生成的一大堆
+代码和挺唬人的程序，觉得自己很行，只管往里加业务逻辑就准备发布——但只要他不理解这些
+代码，就失去了对应用的控制，将来改不动、也不好调。向导是\emph{单行道}：它替你切好代码
+就走了，一旦生成的代码不对、或情况变了需要改，就只能靠你自己。作者强调他们\emph{并不
+反对}向导（他们自己就写了一节讲「写你自己的代码生成器」），反对的是\emph{用你不理解的
+向导代码}。有人反驳说「开发者本来就在依赖不懂的东西」（芯片的量子力学、CPU 中断结构、
+进程调度算法、库代码）——作者同意，但区别在于：那些是\emph{藏在整洁接口之后}的库调用/
+系统服务，而向导生成的代码是\emph{一行行交织}进 Joe 自己的应用里的，最终它不再是「向导的
+代码」，而成了「Joe 的代码」。谁都不该生产自己不完全理解的代码。}
+
+\begin{actions}
+\item 用向导生成骨架后，逐行读懂它——读不懂就别依赖它。
+\item 宁可自己写（哪怕少一点），也不要接手看不懂的生成代码。
+\item 分清「藏在接口后的库」与「交织进你代码里的向导产物」。
+\end{actions}
+
+\vspace{0.6em}
+\begin{center}
+\small\itshape\color{ppgray}
+第 6 章导读完。TIP 44--50 的完整标题对照见附录 A。
+\end{center}

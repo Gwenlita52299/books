@@ -1,0 +1,196 @@
+% ============================================================
+%  第 1 章 双语导读 —— A Pragmatic Philosophy
+%  形式：中文概述 + 关键原句短引用 + 解读 + 实践清单
+% ============================================================
+
+\chapter{A Pragmatic Philosophy}
+\markboth{Chapter 1}{A Pragmatic Philosophy}
+
+\begin{center}
+{\large\color{ppblue} 务实的哲学}
+\end{center}
+
+\begin{bitext}
+\src{What distinguishes Pragmatic Programmers? We feel it's an attitude, a
+style, a philosophy of approaching problems and their solutions.}
+\tgt{务实程序员的不同之处在哪？我们认为，是一种态度、一种风格、一种面对问题及其
+解决方案的哲学。}
+\end{bitext}
+
+\noindent{\small 本章是全书的基石。作者的主张是：务实（pragmatic）不是一套方法论，
+而是一种\emph{思维姿态}——永远把眼前的问题放回更大的语境里去看，并对自己的行为和
+结果\emph{负责}。围绕这一点，本章展开六个话题：责任、软件腐化、推动变革、质量权衡、
+知识资产，以及沟通。下面逐节导读。}
+
+\vspace{0.5em}
+
+% ------------------------------------------------------------
+\sechead{1. The Cat Ate My Source Code}{猫吃了我的源码 \textnormal{\small（TIP 3）}}
+
+\begin{ideabox}
+务实哲学的第一块基石是\emph{承担责任}：为自己的职业发展、项目和日常工作负责。
+务实程序员敢于承认自己的无知与错误，而不是把问题推给厂商、语言、管理层或同事。
+承担责任意味着「主动承诺 + 可被问责」，但你不必接受一个不可能完成、或风险过大的任务——
+你有权拒绝。
+\end{ideabox}
+
+\commentary{失败是常态：即使测试充分、文档齐全、自动化到位，事情照样会出错——交付延期、
+冒出未预料的技术难题。关键不在于避免出错，而在于出错时的姿态：诚实、直接，并\emph{提供选项}
+而不是借口。作者的判断标准很实用：在你开口解释「为什么做不到」之前，先对着显示器上的
+橡皮鸭（或猫）把话讲一遍，自己听听这借口是不是很蠢。}
+
+\begin{bitext}
+\src{The greatest of all weaknesses is the fear of appearing weak.
+\upshape\small\hfill---J.~B.~Bossuet, 1709}
+\tgt{一切弱点之中，最大的弱点是害怕显得软弱。\hfill---J.~B.~Bossuet，1709}
+\end{bitext}
+
+\begin{actions}
+\item 出错时先说「这是我的责任」，再给 2--3 个可行方案，而不是一句「做不完」。
+\item 接受任务前，先识别自己\emph{无法控制}的风险；风险过大就明确说明或拒绝。
+\item 别把问题归给厂商 / 语言 / 管理层——他们的确可能有关，但解决方案得由你给出。
+\end{actions}
+
+% ------------------------------------------------------------
+\sechead{2. Software Entropy}{软件的熵 \textnormal{\small（TIP 4）}}
+
+\begin{ideabox}
+软件无法免疫于「熵」。当系统里的混乱增加，程序员称之为\emph{软件腐化}（software rot）。
+作者借用犯罪学中的\textbf{破窗效应}：一扇破了很久没人修的窗，会向所有人传递「没人在乎
+这栋楼」的信号，于是更多窗被打破，涂鸦出现，破坏蔓延，最终积重难返。软件也一样——
+一个糟糕的设计、一个错误的决定、一段烂代码，如果放着不管，就会拖垮整个项目。
+\end{ideabox}
+
+\commentary{这一节的洞见在于：\emph{腐化的加速器是「忽视」}。所以务实程序员对破窗的态度是
+「发现即处理」。哪怕一时没空修好，也要先用木板把洞钉上——把出问题的代码注释掉、显示一个
+「尚未实现」的提示、或用假数据占位。重点是\emph{做出某个动作}，表明你掌控着局面，而不是
+放任它烂下去。作者还讲了个反面故事：一栋豪宅失火，消防员先在地上铺了垫子，因为「不想弄脏
+地毯」。软件团队有时也犯这种毛病：火在烧，却纠结于无关紧要的体面。}
+
+\begin{bitext}
+\src{Don't leave ``broken windows'' unrepaired. Fix each one as soon as it is
+discovered.}
+\tgt{不要任由「破窗」无人修理。发现一扇，就尽快修好一扇。}
+\end{bitext}
+
+\begin{actions}
+\item 巡视自己项目的「街区」，挑出 2--3 个破窗，和同事讨论问题与修法。
+\item 没时间正式修复时，至少「钉木板」（屏蔽 / 打桩 / 占位），避免继续恶化。
+\item 警惕「反正这堆代码都是垃圾，我也随便写」的心态——它比破窗本身更致命。
+\end{actions}
+
+% ------------------------------------------------------------
+\sechead{3. Stone Soup and Boiled Frogs}{石头汤与温水煮青蛙 \textnormal{\small（TIP 5、6）}}
+
+\begin{ideabox}
+\emph{石头汤}：士兵用一颗「石头」勾起村民的好奇，诱使大家各自拿出胡萝卜、土豆、牛肉……
+最终煮出一锅人人受益的汤。寓意是：有时你清楚该做什么，但直接申请「做大项目」只会招来
+委员会的推诿（作者称之为「启动疲劳」）。更好的策略是做\emph{催化剂}——先做一个小而可用的
+雏形给人看，再顺势扩展。反面则是\emph{温水煮青蛙}：对渐进的变化麻木不仁，等察觉时已经晚了。
+\end{ideabox}
+
+\commentary{这两则寓言合起来是一枚硬币的两面。石汤教你如何\emph{发起}变革：先拿出可运行的
+东西（而非提案），用既有的成功吸引人们加入。青蛙则提醒你\emph{警惕}缓慢的侵蚀：大多数软件
+灾难起初都小到看不见，规格一天天漂移，补丁一层层叠加，士气一点点被磨掉。作者的处方是
+「Remember the Big Picture」——定期跳出来审视全局，而不只是盯着自己手头那点事。}
+
+\begin{bitext}
+\src{People find it easier to join an ongoing success. Show them a glimpse of
+the future and you'll get them to rally around.}
+\tgt{人们更容易加入一场\emph{进行中的}成功。让他们瞥见未来，他们就会聚拢过来。}
+\end{bitext}
+
+\begin{actions}
+\item 想推动一个改动时，先做出最小可运行的版本，展示它，再提出扩展。
+\item 定期复盘：项目的规格、代码、进度是不是被「一天一点」地悄悄带偏了？
+\item 区分两种情形：你是在煮石汤（对所有人都有利），还是在煮青蛙（渐进地伤害对方）？
+\end{actions}
+
+% ------------------------------------------------------------
+\sechead{4. Good-Enough Software}{够用就好 \textnormal{\small（TIP 7）}}
+
+\begin{ideabox}
+不可能写出完美的软件——时间、技术和人的性情都在与你作对。所以作者主张\emph{够好就行}
+（good-enough）：好到让用户满意、让未来的维护者能接得住、也让你自己心安。但「够好」
+\emph{绝不等于}马虎。关键是让用户\emph{参与}「什么程度算够好」的权衡，并把系统的范围与
+质量明确写进需求里。
+\end{ideabox}
+
+\commentary{这一节的实践指向是：质量是一个\emph{可以被协商和规定}的需求项，而不是开发
+结束时才谈的模糊感受。作者举了「今天的伟大软件常比明天才来的完美软件更可取」这个判断，
+并提醒：为了加功能或反复打磨而忽视用户诉求是不专业的，但为了赶工期而承诺不可能的时间表、
+砍掉基本工程底线，同样不专业。分寸就在这两者之间。作者还用绘画作比：不停叠加细节，画会
+「淹没在颜料里」——要懂得何时停手。}
+
+\begin{bitext}
+\src{The scope and quality of the system you produce should be specified as
+part of that system's requirements.}
+\tgt{你所产出系统的\emph{范围}与\emph{质量}，应当作为该系统需求的一部分被明确规定。}
+\end{bitext}
+
+\begin{actions}
+\item 向用户提问：「你希望这个软件做到多好？」而不是只问「你要什么功能？」
+\item 把质量目标（容许的缺陷度、打磨程度）写进需求文档，作为可验收项。
+\item 懂得止损：别让过度的修饰和打磨把好程序毁了。
+\end{actions}
+
+% ------------------------------------------------------------
+\sechead{5. Your Knowledge Portfolio}{你的知识资产 \textnormal{\small（TIP 8、9）}}
+
+\begin{ideabox}
+你的知识与经验是最重要的职业资产，但它是\emph{会贬值}的资产。作者把它比作\emph{投资组合}，
+并给出五条与理财同构的原则：定期投入、多元化、平衡风险、低买高卖、定期复盘再平衡。
+其中最重要也最简单的一条是「定期投入」。
+\end{ideabox}
+
+\commentary{第 5 节大概是本章最著名的一节。作者的具体建议包括：每年至少学一门新语言
+（不同语言用不同方式解决同一问题，能拓宽思维）、每季度读一本技术书、也要读非技术书
+（记住计算机是给人用的）、上课、参加本地用户组、尝试不同环境、保持跟进、多看新闻组与
+网络资源。紧接着的第 9 条 tip 补上关键一环：\emph{批判性地}看待你所读所闻——搜索引擎
+排第一不代表最匹配（可能是付费置顶），书店重点陈列也不代表是好书。}
+
+\begin{bitext}
+\src{An investment in knowledge always pays the best interest.
+\upshape\small\hfill---Benjamin Franklin}
+\tgt{对知识的投资，永远回报最高。\hfill---本杰明·富兰克林}
+\end{bitext}
+
+\begin{actions}
+\item 本周就开始学一门新语言（一直写 C++？试试 Smalltalk 或 Squeak；写 Java？试试 Eiffel）。
+\item 建立固定的学习节奏：每月/每季度读一本书，跨出当前项目的技术栈。
+\item 对每一条技术宣传多问一句：谁在从中获利？
+\end{actions}
+
+% ------------------------------------------------------------
+\sechead{6. Communicate!}{沟通！ \textnormal{\small（TIP 10）}}
+
+\begin{ideabox}
+再好的想法、再精妙的代码，如果不能有效地传达给别人，终究是\emph{孤儿的想法}。
+开发者一天中的大部分时间都在沟通：开会、访谈用户、写代码、写提案、在团队内游说。
+作者给出一份实用清单：知道你要说什么（先列提纲）、了解你的听众、选择时机、选择风格、
+让文档好看、让听众参与、\emph{学会倾听}、及时回复他人。
+\end{ideabox}
+
+\commentary{这一节的精髓是「沟通是双向的」。作者强调：如果对方没听进去，你就没有在沟通，
+只是在「说话」而已。了解听众可以用一个助记法 \textbf{WISDOM} 来提醒自己（听众要学什么、
+他们的兴趣点、他们的水平、他们要多细、谁该掌握信息、如何激励他们听）。文档方面作者很
+务实：内容和呈现都重要，现代工具（\LaTeX、troff）没理由做出难看的文档。最后一条看似
+琐碎却极重要——\emph{及时回复}邮件与留言，哪怕只是「稍后答复你」。}
+
+\begin{bitext}
+\src{Having the best ideas, the finest code, or the most pragmatic thinking is
+ultimately sterile unless you can communicate with other people.}
+\tgt{拥有最好的想法、最精妙的代码或最务实的思维，若不能与他人沟通，终究毫无生机。}
+\end{bitext}
+
+\begin{actions}
+\item 重要会议/重要邮件前，先写提纲，并自问「这样说能传达我真正想说的吗？」
+\item 说话前先想：听众是谁？他们关心什么？此刻是不是好时机？
+\item 无论多忙，都回复邮件与语音留言，哪怕只回一句「稍后详复」。
+\end{actions}
+
+\vspace{0.6em}
+\begin{center}
+\small\itshape\color{ppgray}
+本章导读完。TIP 1--10 的完整标题对照见附录 A。
+\end{center}

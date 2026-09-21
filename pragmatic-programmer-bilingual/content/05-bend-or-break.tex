@@ -1,0 +1,275 @@
+% ============================================================
+%  第 5 章 双语导读 —— Bend, or Break
+%  形式：中文概述 + 关键原句短引用 + 解读 + 实践清单
+% ============================================================
+
+\chapter{Bend, or Break}
+\markboth{Chapter 5}{Bend, or Break}
+
+\begin{center}
+{\large\color{ppblue} 弯曲，或折断}
+\end{center}
+
+\begin{bitext}
+\src{Life doesn't stand still. Neither can the code that we write\ldots we
+need to make every effort to write code that's as loose---as flexible---as
+possible.}
+\tgt{生活不会静止不动，我们写的代码也不能。……我们要尽力让代码尽可能\emph{松}、
+尽可能\emph{灵活}。}
+\end{bitext}
+
+\noindent{\small 第 2 章讲过「不可逆决策」的危险；本章讲\emph{如何}做出可逆的决策，
+让代码在不确定的世界里保持柔韧。路线是：先看\emph{耦合}（迪米特法则），再学
+\emph{少写代码}（元编程）、\emph{时间维度上的解耦}（时间耦合）、\emph{模型与视图分离}，
+最后是更彻底的解耦（黑板系统）。目标：写出能「随机应变」的代码。}
+
+\vspace{0.5em}
+
+% ------------------------------------------------------------
+\sechead{26. Decoupling and the Law of Demeter}{解耦与迪米特法则 \textnormal{\small（TIP 36）}}
+
+\begin{ideabox}
+「害羞的代码」是双向的：\emph{不向别人暴露自己}，也\emph{不跟太多人打交道}。
+作者用间谍组织的「细胞」作比：细胞之间互不知晓，一个细胞暴露也不会牵连其他人。
+代码也一样——按模块分「细胞」，限制彼此往来，某个模块失效被替换，其余模块照常运转。
+\end{ideabox}
+
+\begin{bitext}
+\src{Good fences make good neighbors.
+\upshape\small\hfill---Robert Frost, ``Mending Wall''}
+\tgt{好篱笆造就好邻居。\hfill---罗伯特·弗罗斯特}
+\end{bitext}
+
+\commentary{作者用「总承包商」类比：你雇了总承包商，就不必自己去跟各个分包商打交道。
+软件里也一样——\emph{你请求一个对象提供服务，就别让它再甩给你一个第三方对象让你自己
+去处理}。反面例子很典型：为了画图，一路
+\texttt{aSelection.getRecorder().getLocation().getTimeZone()} 挖下去，就把绘图例程
+无谓地耦合到了 Selection、Recorder、Location 三个类上；一旦 Fred 改了 Location，
+你的代码也得跟着改。正确做法是\textbf{直接要你需要的东西}：让 Selection 提供一个
+\texttt{getTimeZone()}，绘图例程不关心时区从哪里来。作者列出依赖爆炸的三个症状：
+链接一个单元测试的命令比测试程序本身还长；对某模块的「简单」改动在无关模块间传播；
+开发者不敢改代码，因为不确定会牵连什么。}
+
+\begin{bitext}
+\src{\tip{36}{Minimize Coupling Between Modules}{The Law of Demeter for
+functions\ldots tries to prevent you from reaching into an object to gain
+access to a third object's methods.}}
+\tgt{\tip{36}{最小化模块间的耦合}{函数版迪米特法则……力图阻止你「伸手」进入一个对象，
+去访问第三个对象的方法。}}
+\end{bitext}
+
+\commentary{迪米特法则的核心规则：一个对象的方法，只应调用——\emph{它自身}、\emph{传进来
+的参数}、\emph{它创建的对象}、\emph{它直接持有的组件对象}——的方法。研究（[BBM96]）
+表明：C++ 中「响应集」更大的类更容易出错（响应集 = 该类方法直接调用的函数数量），
+遵循迪米特法则能缩小响应集，从而减少错误。代价是：你得像总承包商一样，写大量只是
+转发请求的\emph{包装方法}，带来运行时和空间开销；在性能敏感处（如同数据库的「反范式化」）
+可以权衡——只要耦合\emph{被明确知晓且可接受}，设计就没问题。作者还提了「物理耦合」：
+文件、目录、库之间的依赖（John Lakos《大规模 C++ 软件设计》），逻辑设计与物理设计
+必须同步进行。}
+
+\begin{actions}
+\item 别链式调用 \texttt{a.getB().getC().doSomething()}；让 \texttt{a} 替你代办。
+\item 给被频繁穿透的对象补上「转发方法」，把依赖收口到一处。
+\item 物理层面（文件/库依赖）也要控制，避免构建周期以天计。
+\end{actions}
+
+% ------------------------------------------------------------
+\sechead{27. Metaprogramming}{元编程 \textnormal{\small（TIP 37、38）}}
+
+\begin{ideabox}
+细节会毁掉我们干净的代码——尤其当细节频繁变化时。每次为了顺应业务、法规或管理层
+一时口味去改代码，都在冒引入新 bug 的风险。所以作者说：「把细节请出去！」把它们挪出
+代码，让程序变得\emph{高度可配置、柔软}。
+\end{ideabox}
+
+\begin{bitext}
+\src{No amount of genius can overcome a preoccupation with detail.
+\upshape\small\hfill---Levy's Eighth Law}
+\tgt{再高的天才，也敌不过对细节的执迷。\hfill---莱维第八定律}
+\end{bitext}
+
+\begin{bitext}
+\src{\tip{37}{Configure, Don't Integrate}{Tuning parameters, user preferences,
+the installation directory\ldots should be implemented as configuration
+options, not through integration or engineering.}}
+\tgt{\tip{37}{配置，而非集成}{调优参数、用户偏好、安装目录……都应作为\emph{配置项}
+实现，而不是靠集成或工程手段。}}
+\end{bitext}
+
+\commentary{关键词是\textbf{元数据}——「关于数据的数据」。作者取最宽泛的定义：任何
+\emph{描述应用}的数据（该如何运行、用哪些资源）。它通常在\emph{运行时}读取，而非编译期。
+浏览器隐藏工具栏的偏好、Windows 的 .ini/注册表、Unix 的 X 资源文件、Java 的
+Property 文件都是元数据；更强大的做法是内嵌一门脚本语言。}
+
+\begin{bitext}
+\src{\tip{38}{Put Abstractions in Code, Details in Metadata}{Program for the
+general case, and put the specifics somewhere else---outside the compiled
+code base.}}
+\tgt{\tip{38}{抽象进代码，细节进元数据}{为\emph{一般情形}编程，把\emph{具体细节}
+放到别处——编译产物之外。}}
+\end{bitext}
+
+\commentary{这样做的好处：迫使你解耦、推迟细节从而得到更抽象健壮的设计、不必重新编译
+就能定制（甚至能给线上系统的严重 bug 提供应急变通）、元数据可以表达得比通用语言更贴近
+问题领域、同一个「引擎」配不同元数据能支撑多个项目。作者特别强调\emph{业务逻辑/规则}
+最适合放进灵活的格式（规则系统、迷你语言），因为它们变化最频繁。还有个实用问题：
+程序\emph{何时}读配置？很多程序只在启动时读一次，改配置就得重启——长驻服务应考虑
+运行中重载。最后用渡渡鸟（dodo）作结：不能适应的物种会灭绝，别让你的项目（或职业）
+也走上这条路。}
+
+\begin{actions}
+\item 把「会变的东西」（算法、数据库、界面风格、业务规则）做成配置项。
+\item 为一般情形写引擎，把具体情形放进元数据/迷你语言。
+\item 长驻服务支持运行中重载配置，别动不动就重启。
+\end{actions}
+
+% ------------------------------------------------------------
+\sechead{28. Temporal Coupling}{时间耦合 \textnormal{\small（TIP 39--41）}}
+
+\begin{ideabox}
+时间是被软件架构忽视的维度——这里说的不是日程，而是\emph{时间作为设计元素}。
+它有两面：\textbf{并发}（同时发生）与\textbf{顺序}（时间上的相对位置）。人们设计和
+编程时习惯线性思维：「先做这个，再总做那个」。这会带来\emph{时间耦合}：A 必须在 B 之前
+被调用、一次只能跑一个报表、得等屏幕重绘完才能收到点击——「滴答必须在嗒之前」。
+这不灵活，也不现实。
+\end{ideabox}
+
+\begin{bitext}
+\src{\tip{39}{Analyze Workflow to Improve Concurrency}{You can use activity
+diagrams to maximize parallelism by identifying activities that could be
+performed in parallel, but aren't.}}
+\tgt{\tip{39}{分析工作流以改善并发}{用活动图找出那些\emph{本可并行、实际却串行}的
+活动，从而最大化并行度。}}
+\end{bitext}
+
+\commentary{\textbf{工作流}：用 UML 活动图把用户描述的工作流画出来会很开眼——用户往往
+按线性顺序描述（比如调一杯 piña colada 的 12 步），但活动图会暴露真正的依赖：「开搅拌机」
+「开椰浆」「量朗姆酒」「拿杯子」「拿小粉伞」其实可以同时做。\textbf{架构}：作者讲了一个
+OLTP 系统，做成三层多进程分布式，靠工作队列通信、请求全异步，从而简洁又高性能。
+由此引出\textbf{饥饿消费者模型}（hungry consumer）：用「一组独立消费者 + 一个集中工作
+队列」代替中心调度器，谁饿了自己去队列抓活干；某个任务卡住时别人能顶上，各自按自己
+节奏推进——这就是\emph{时间解耦}。}
+
+\begin{bitext}
+\src{\tip{40}{Design Using Services}{Instead of components, we have really
+created services---independent, concurrent objects behind well-defined,
+consistent interfaces.}}
+\tgt{\tip{40}{用服务来设计}{我们真正创建的不是组件，而是\emph{服务}——独立、并发的
+对象，藏在定义良好且一致的接口之后。}}
+\end{bitext}
+
+\begin{bitext}
+\src{\tip{41}{Always Design for Concurrency}{Concurrency forces you to think
+through things a bit more carefully---you're not alone at the party anymore.}}
+\tgt{\tip{41}{始终为并发而设计}{并发逼你把事情想得更周全——派对上不再只有你一个人。}}
+\end{bitext}
+
+\commentary{即使不做多线程，也应按并发的约束来设计，因为那些约束很有益：全局/静态变量
+必须防止并发访问（于是你会反省：\emph{我为什么需要全局变量}）；对象必须在被调用的
+\emph{任何}时刻都处于\emph{合法状态}（别再依赖「创建后到显示前没人会碰它」这种巧合）。
+作者用 \texttt{strtok} 与 Java \texttt{StringTokenizer} 对比：\texttt{strtok} 在线程
+不安全之外，还有讨厌的时间依赖（第一次调用必须传待解析串，之后必须传 NULL，且内部
+保留隐式状态，无法同时解析两个串）；而 \texttt{StringTokenizer} 的接口干净、无隐式
+状态、可同时解析多个串。\emph{思考并发与时间依赖，能反过来帮你设计出更干净的接口}。
+好处不止于此：一旦架构里有了并发的元素，「部署形态」也变得灵活（standalone /
+客户端-服务器 / n 层随时可配）。反过来（给非并发应用事后加并发）要难得多。}
+
+\begin{actions}
+\item 用活动图找出可并行却被串行化的步骤。
+\item 用「工作队列 + 独立消费者」解耦处理节奏（饥饿消费者模型）。
+\item 保证对象在\emph{任何}被调用时刻都处于合法状态，别依赖调用时序。
+\item 警惕带隐式状态、要求特定调用顺序的接口（反面教材 \texttt{strtok}）。
+\end{actions}
+
+% ------------------------------------------------------------
+\sechead{29. It's Just a View}{这只是一个视图 \textnormal{\small（TIP 42）}}
+
+\begin{ideabox}
+把程序拆成模块后，新问题来了：运行时对象怎么互相通信？如何管理它们之间的逻辑依赖、
+同步各自的状态变化？要做得干净灵活——不希望它们彼此知道太多，让每个模块「只听到它
+想听的东西」。作者引入\emph{事件}：一条「刚发生了件有意思的事」的特殊消息，
+用来通知别的对象。这样能把对象间的耦合降到最低——\emph{发事件的人无需知道接收者是谁}。
+\end{ideabox}
+
+\begin{bitext}
+\src{Still, a man hears what he wants to hear and disregards the rest.
+\upshape\small\hfill---Simon and Garfunkel, ``The Boxer''}
+\tgt{人总是只听自己想听的，其余的充耳不闻。\hfill---西蒙与加芬克尔《拳击手》}
+\end{bitext}
+
+\commentary{作者先批评一种坏做法：让\emph{一个}例程接收所有事件（早期 Java 如此）——
+它违反了封装（那个例程得了解众多对象间的交互）、增加了耦合，还常导致巨大的
+\texttt{case} 或多路 \texttt{if}。正确做法是\textbf{发布/订阅}（publish/subscribe）：
+对象只注册自己关心的事件，事件也只送给需要它的对象——「别给对象发垃圾邮件」。
+Publisher 维护订阅者名单，事件发生时依次通知。}
+
+\begin{bitext}
+\src{\tip{42}{Separate Views from Models}{By loosening the coupling between
+the model and the view/controller, you buy yourself a lot of flexibility at
+low cost.}}
+\tgt{\tip{42}{让视图与模型分离}{放松模型与视图/控制器之间的耦合，你能以很低的代价换来
+极大的灵活性。}}
+\end{bitext}
+
+\commentary{由此引出\textbf{MVC}（模型-视图-控制器）。以电子表格为例：数据本身是
+\emph{模型}，表格、柱状图、合计框是不同\emph{视图}，缩放/平移是\emph{控制器}——
+三份数据不能各存一份。分离之后你能：同一模型有多个视图、通用视图服务多个模型、
+多个控制器提供非常规输入。作者以 Java 树控件（\texttt{JTree}/\texttt{TreeModel}/
+\texttt{TreeCellRenderer}）为例：你只需提供一个符合 \texttt{TreeModel} 的数据源，
+就得到一个完整可导航的树；老板要求给某些员工换个「骷髅头」图标时，只改
+\texttt{TreeCellRenderer} 即可。他还强调 MVC 不止用于 GUI：视图只是对模型的一种
+\emph{解释}（未必图形化），控制器是一种协调机制（未必对应输入设备）。棒球转播的例子
+展示了「模型-视图网络」：比分、球员、记录、天气各是一个模型，解说词、电视字幕、网页
+各是订阅它们的视图；视图又能再成为更高层对象的模型——因为是\emph{网络}而非线性链条，
+灵活性极大。}
+
+\begin{actions}
+\item 用发布/订阅而非「一个例程收所有事件」。
+\item 数据（模型）与展示（视图）分开，别各存一份数据。
+\item 让视图/控制器可替换、可叠加（同模型多视图，同视图多模型）。
+\item MVC 不限于 GUI——任何「解释」都是视图，任何「协调」都是控制器。
+\end{actions}
+
+% ------------------------------------------------------------
+\sechead{30. Blackboards}{黑板 \textnormal{\small（TIP 43）}}
+
+\begin{ideabox}
+侦探如何协作破案？首席探员在会议室立一块大黑板，写下一个问题——「H. Dumpty（男性，
+蛋）：意外还是谋杀？」——各位侦探各自往板上贴事实、证词、物证、推测。\emph{没有哪个
+侦探需要知道其他侦探的存在}，他们只是盯着板子找新信息、再添上自己的发现。这些人可能
+来自不同专业、不同警局，唯一的共同点是想破案。
+\end{ideabox}
+
+\begin{bitext}
+\src{\tip{43}{Use Blackboards to Coordinate Workflow}{A blackboard system lets
+us decouple our objects from each other completely, providing a forum where
+knowledge consumers and producers can exchange data anonymously and
+asynchronously.}}
+\tgt{\tip{43}{用黑板协调工作流}{黑板系统让我们把对象\emph{彻底}解耦，提供一个论坛，
+让知识的消费者与生产者\emph{匿名、异步}地交换数据。}}
+\end{bitext}
+
+\commentary{黑板系统的关键特性：参与者互不知晓、可来自不同「专业」、可随时进出、板上
+放什么\emph{没有限制}（图片、句子、物证都行）。技术渊源是 AI 领域（语音识别、知识推理），
+现代实现如 JavaSpaces、T Spaces 基于 Linda 的\emph{元组空间}（tuple space）思想：
+以键/值对存\emph{活跃对象}（不只是数据），通过模板与通配符做\emph{部分匹配}来检索——
+例如用 \texttt{Author} 模板 + \texttt{lastName="Shakespeare"}，能捞出作者莎士比亚，
+而不是园丁莎士比亚。主要操作有 read / write / take（读并移除）/ notify（匹配写入时
+自动通知）。因为能存对象，黑板不仅能做「数据流」，还能做「对象流」的算法设计。
+最大好处是\emph{单一、一致的接口}——而传统分布式应用常要为每个交互手工设计 API，
+界面组合爆炸会很快变成噩梦。作者最后用抵押贷款申请为例：法律规则复杂，用「黑板 +
+规则引擎」很优雅——\emph{数据到达顺序无关紧要}，一条事实贴上去就能触发相应规则，
+规则输出也可再贴回黑板触发更多规则。}
+
+\begin{actions}
+\item 需要多方匿名、异步地交换信息时，考虑黑板模型。
+\item 用统一的「黑板接口」替代为每个交互定制的 API。
+\item 把黑板与规则引擎结合，让数据到达顺序变得无关紧要。
+\item 大型黑板要分区（扁平兴趣组或树状结构），避免杂乱难找。
+\end{actions}
+
+\vspace{0.6em}
+\begin{center}
+\small\itshape\color{ppgray}
+第 5 章导读完。TIP 36--43 的完整标题对照见附录 A。
+\end{center}

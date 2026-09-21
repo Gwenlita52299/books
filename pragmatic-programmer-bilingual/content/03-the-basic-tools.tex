@@ -1,0 +1,290 @@
+% ============================================================
+%  第 3 章 双语导读 —— The Basic Tools
+%  形式：中文概述 + 关键原句短引用 + 解读 + 实践清单
+% ============================================================
+
+\chapter{The Basic Tools}
+\markboth{Chapter 3}{The Basic Tools}
+
+\begin{center}
+{\large\color{ppblue} 基础工具}
+\end{center}
+
+\begin{bitext}
+\src{Tools amplify your talent. The better your tools, and the better you
+know how to use them, the more productive you can be.}
+\tgt{工具会放大你的才能。工具越好、你越会用，你的产出就越高。}
+\end{bitext}
+
+\noindent{\small 本章用木匠作比：工匠从一套称手的工具起步，日复一日地打磨、适应，
+直到工具成为「手的延伸」。程序员也一样——工具是思维通向成品的导管。本章按「原料 →
+工作台 → 主力工具 → 保险 → 胶水 → 模具」的顺序，讲了六组基础工具：纯文本（原料）、
+命令行（工作台）、编辑器、版本控制、调试，以及文本处理与代码生成（胶水与模具）。}
+
+\vspace{0.5em}
+
+% ------------------------------------------------------------
+\sechead{14. The Power of Plain Text}{纯文本的力量 \textnormal{\small（TIP 20）}}
+
+\begin{ideabox}
+程序员的「原料」不是木头或铁，而是\emph{知识}。作者主张：持久保存知识的最佳格式是
+\emph{纯文本}。纯文本不是指没有结构——XML、HTML 都是结构良好的纯文本；它的关键优势
+是\emph{人可读}，且不依赖创建它的那个程序。二进制格式的根本问题在于「上下文与数据
+分离」：数据离开解析它的程序就毫无意义。
+\end{ideabox}
+
+\begin{bitext}
+\src{\tip{20}{Keep Knowledge in Plain Text}{With plain text, we give
+ourselves the ability to manipulate knowledge, both manually and
+programmatically.}}
+\tgt{\tip{20}{把知识保存在纯文本中}{有了纯文本，我们就能同时用\emph{手工}和
+\emph{程序}两种方式操作知识。}}
+\end{bitext}
+
+\commentary{作者点出一个细致的区别：「人可读」不等于「人可理解」。
+\texttt{Field19=467abe} 每个字符都可打印，但毫无意义；换成
+\texttt{DrawingType=UMLActivityDrawing} 才真正自解释。纯文本的三大好处：
+\textbf{对抗过时}（可读、自描述的数据会比创建它的程序活得久，还只需知道格式的\emph{一部分}
+就能解析）、\textbf{杠杆效应}（几乎所有工具——版本控制、diff、grep——都能作用于文本）、
+\textbf{便于测试}（合成测试数据随手可改，回归输出用 diff 就能比对）。代价是体积更大、
+解析更慢，但作者认为在异构环境里，纯文本的优势远大于这两点劣势。}
+
+\begin{actions}
+\item 配置、参数、元数据尽量用纯文本存放，别塞进二进制/私有格式。
+\item 字段名写成自解释的（\texttt{SSNO} 而不是 \texttt{FIELD10}）。
+\item 担心用户乱改配置时，用校验和/哈希，而不是靠「藏起来」。
+\end{actions}
+
+% ------------------------------------------------------------
+\sechead{15. Shell Games}{命令行的游戏 \textnormal{\small（TIP 21）}}
+
+\begin{ideabox}
+木匠需要一张结实的工作台；程序员的工作台就是\emph{命令行 shell}。从 shell 里你能调用
+全部工具、用管道把它们组合成原作者都没想到的用法、写宏命令把重复活动自动化。作者反驳
+「点一点鼠标不也一样吗」：GUI 的优点是所见即所得（WYSIWYG），缺点是
+\emph{所见即全部所得}（WYSIAYG）——它被限制在设计师预想的模型里，而实际工作往往需要
+越出那个模型。
+\end{ideabox}
+
+\begin{bitext}
+\src{\tip{21}{Use the Power of Command Shells}{Gain familiarity with the
+shell, and you'll find your productivity soaring.}}
+\tgt{\tip{21}{善用命令行的力量}{熟悉 shell 之后，你会发现自己的效率飞速提升。}}
+\end{bitext}
+
+\commentary{作者用几组对比说明命令行的威力，比如「找出比 Makefile 更新的所有 .c 文件」
+「打包源码」「找出上周没动过的 Java 文件里哪些用了 awt」——shell 里一行管道命令的事，
+GUI 里要点十几下、翻日历、逐个打开文件搜索。命令行「晦涩但强大且简洁」，而且能写成
+脚本反复使用。当年 Windows 下可用 Cygwin（提供 Unix 兼容层与 120+ 工具）或 UWIN 补齐。}
+
+\begin{actions}
+\item 凡是「点 N 下按钮」的重复操作，想想能否用一行 shell 命令或管道搞定。
+\item 把常用的命令序列固化成脚本，而不是每次重敲。
+\item 换环境时先摸清有哪些 shell 可用，并尽量带上自己惯用的那个。
+\end{actions}
+
+% ------------------------------------------------------------
+\sechead{16. Power Editing}{高效编辑 \textnormal{\small（TIP 22）}}
+
+\begin{ideabox}
+编辑器尤其体现「工具是手的延伸」——因为文本是编程的基本原料。作者的核心建议是：
+\emph{精通一个编辑器，并用它处理所有编辑任务}（写代码、文档、备忘、系统管理、发邮件）。
+每个环境换一套快捷键和习惯，会让你在任何一处都难以熟练；而统一之后，文本操作会变成
+肌肉记忆，「按键如歌唱般在文字与思绪间穿行」。
+\end{ideabox}
+
+\begin{bitext}
+\src{\tip{22}{Use a Single Editor Well}{Choose an editor, know it thoroughly,
+and use it for all editing tasks.}}
+\tgt{\tip{22}{熟练使用一个编辑器}{选定一个编辑器，彻底掌握它，并用它完成所有编辑
+任务。}}
+\end{bitext}
+
+\commentary{一个好编辑器应有的基本能力：\textbf{可配置}（字体、颜色、快捷键——手不离
+键盘才高效）、\textbf{可扩展}（新语言、新格式都能「教」给它）、\textbf{可编程}
+（用宏或内嵌脚本完成复杂多步操作，如 Emacs 的 Lisp）。再加语言相关能力：语法高亮、
+自动补全、自动缩进、模板、帮助联动、类 IDE 的编译调试。作者很实用地指出：语法高亮
+不是花架子——拼错的关键字不按颜色显示，能在你编译之前就跳出来。他还给了张「进阶表」：
+只用基础功能 → 挑个强大编辑器学好；有偏好但没吃透 → 把功能学全、减少按键；
+已用得很熟 → 扩展到更多任务。}
+
+\begin{actions}
+\item 选定一个编辑器，逼自己用到熟练；把高频操作都变成不用想的手势。
+\item 学会你编辑器的「批量」能力（如整段排序、多行编辑），别用记事本硬敲。
+\item 为反复出现的重复劳动写宏或片段。
+\end{actions}
+
+% ------------------------------------------------------------
+\sechead{17. Source Code Control}{版本控制 \textnormal{\small（TIP 23）}}
+
+\begin{ideabox}
+用户界面里我们最看重「撤销键」——一个原谅错误的按钮。可要是错误发生在上周、你又开关
+了十次机器呢？这就是版本控制系统的价值：它是\emph{一个巨大的撤销键}，一台\emph{项目级
+的时间机器}，能把你带回「代码还能编译运行」的那个美好时刻。
+\end{ideabox}
+
+\begin{bitext}
+\src{Those who cannot remember the past are condemned to repeat it.
+\upshape\small\hfill---George Santayana}
+\tgt{不能记住过去的人，注定要重蹈覆辙。\hfill---乔治·桑塔亚那}
+\end{bitext}
+
+\commentary{版本控制（SCCS）远不止「撤销」：它能回答「这行是谁改的」「当前版和上周版
+差在哪」「这个发布改了多少行」「哪些文件最常被改」——这些信息对 bug 追踪、审计、性能
+与质量分析都极有价值。它还能标记发布版本（随时重建）、管理开发分支（主线继续开发，
+发布分支修 bug 再合并回主线）。作者的态度非常坚决：
+「Always.」（永远使用）——哪怕是单人一周项目、哪怕是一次性原型、哪怕不是源码
+（文档、电话簿、给厂商的备忘、makefile、发布流程，甚至烧 CD 的小脚本）。原因之一是它
+带来一个隐藏红利：\emph{自动且可重复的构建}。}
+
+\begin{bitext}
+\src{\tip{23}{Always Use Source Code Control}{Even if you are a single-person
+team on a one-week project. Even if it's a ``throw-away'' prototype.}}
+\tgt{\tip{23}{始终使用源码版本控制}{哪怕你是单人团队、项目只做一周；哪怕这只是一次性
+的「用完就扔」原型。}}
+\end{bitext}
+
+\begin{actions}
+\item 把项目的一切（含文档、脚本、配置）都纳入版本控制。
+\item 若团队还没用，先给自己建一个私有仓库，别等。
+\item 借助版本控制做自动、可重复的构建与回归测试。
+\end{actions}
+
+% ------------------------------------------------------------
+\sechead{18. Debugging}{调试 \textnormal{\small（TIP 24--27）}}
+
+\begin{ideabox}
+没有人能写出完美的软件，所以调试会占据你一天中的很大一部分。作者先谈\textbf{心态}：
+很多人把调试当成情绪问题（否认、指责、借口、冷漠），但要\emph{把它当作一个待解的
+谜题}来攻克。找到了别人的 bug 也别忙着追责——在技术层面，你关心的是\emph{修好问题}，
+而不是归咎于人。
+\end{ideabox}
+
+\begin{bitext}
+\src{\tip{24}{Fix the Problem, Not the Blame}{It doesn't really matter whether
+the bug is your fault or someone else's. It is still your problem.}}
+\tgt{\tip{24}{解决问题，而不是归咎于人}{bug 是你的还是别人的，其实都不重要——它
+\emph{就是}你的问题。}}
+\end{bitext}
+
+\begin{bitext}
+\src{\tip{25}{Don't Panic}{Resist the urge to fix just the symptoms you see:
+the actual fault may be several steps removed from what you are observing.}}
+\tgt{\tip{25}{不要惊慌}{别急着只修你看到的现象：真正的故障可能离你观察到的位置隔着
+好几步，还牵涉若干相关之处。}}
+\end{bitext}
+
+\commentary{调试的第一条准则是\textbf{不要惊慌}。如果看到 bug 的第一反应是「这不可能」，
+那你就是错的——别浪费脑细胞在「但这是不可能的」上，因为显然它可能发生，而且已经发生了。
+\begin{sloppypar}要警惕「短视」：不要只修表象，要设法找到\emph{根因}。作者还讲了
+「从一个方向画一笔没事、反方向画就崩」的真实故事，说明两个道理：\emph{要采访报 bug 的
+用户}以获取足够细节、\emph{人为的测试}（只在一个方向上试）覆盖不足。\end{sloppypar}}
+
+\commentary{策略部分：先把 bug \emph{稳定复现}（最好能用\emph{一条命令}复现，而不是
+15 步操作）；\emph{可视化数据}（看程序在操作什么数据，往往比一千句话更有用）；
+\emph{加日志追踪}（trace 在并发、实时、事件驱动系统里格外有用，因为那些场景下
+普通调试器看的是「此刻的状态」，看不到时间维度）；\emph{橡皮鸭}（对着别人/一只橡皮鸭
+一步步讲清楚代码该做什么，问题常常自己跳出来——因为讲解逼你把习以为常的\emph{假设}
+说出来）；\emph{排除法}（先怀疑自己的代码，别急着怪 OS 和第三方库）。}
+
+\begin{bitext}
+\src{\tip{26}{``select'' Isn't Broken}{Remember, if you see hoof prints, think
+horses---not zebras. The OS is probably not broken.}}
+\tgt{\tip{26}{``select'' 没有坏}{记住：看到蹄印，先想马、别想斑马。操作系统多半
+没坏。}}
+\end{bitext}
+
+\commentary{TIP 26 来自一个真实教训：一位资深工程师坚信 Solaris 的 \texttt{select}
+系统调用坏了，花了几周写绕过方案（而机器上其他网络程序都好好的），最后被迫读文档，
+几分钟就找到了自己的错误。此后「select is broken」成了团队里的一句自嘲提醒。
+另外作者指出：如果你「只改了一处」系统就坏了，那多半就是它（哪怕是新版本的 OS、
+编译器、数据库）。找不到头绪时，可以用经典的\emph{二分查找}缩小范围。}
+
+\begin{bitext}
+\src{\tip{27}{Don't Assume It---Prove It}{The amount of surprise you feel
+when something goes wrong is directly proportional to the amount of trust
+and faith you have in the code being run.}}
+\tgt{\tip{27}{别假设——去证明}{出事时你有多惊讶，正比于你对那段代码的信任与信仰
+有多深。}}
+\end{bitext}
+
+\commentary{当你被 bug「吓到」时，说明你的某个\emph{假设}错了。别因为「我知道这段代码
+没问题」就跳过它——在本语境、本数据、本边界条件下\emph{证明}它。修好之后还要追问：
+为什么之前没测出来？要不要补测试用例？同类 bug 在别处是否也存在？如果是某个人的错误
+假设导致的，就在团队里讲开——一个人误解，往往很多人也误解。}
+
+\begin{actions}
+\item 先把 bug 复现成「一条命令」可触发的情形。
+\item 遇到「不可能」先翻译成「我的某个假设错了」。
+\item 讲给同事或橡皮鸭听；用二分查找缩小范围。
+\item 修完追问：测试为何漏掉它？别处是否同病？
+\end{actions}
+
+% ------------------------------------------------------------
+\sechead{19. Text Manipulation}{文本处理 \textnormal{\small（TIP 28）}}
+
+\begin{ideabox}
+文本处理语言之于编程，好比木工的\emph{电木铣}——嘈杂、笨重、有点暴力，用错了能毁掉
+整块料；但在行家手里，它极其强大灵活，只是需要花时间掌握。作者偏爱的有 awk、sed、
+Perl、Python、Tcl、Ruby 等。用它们可以在半小时里试一个疯狂的想法，而不是花五小时；
+可以一天就自动化项目的重要环节，而不是花一周。
+\end{ideabox}
+
+\begin{bitext}
+\src{\tip{28}{Learn a Text Manipulation Language}{You can quickly hack up
+utilities and prototype ideas---jobs that might take five or ten times as
+long using conventional languages.}}
+\tgt{\tip{28}{学一门文本处理语言}{你能快速拼出小工具、给想法做原型——同样的活
+用传统语言可能要花五到十倍的时间。}}
+\end{bitext}
+
+\commentary{Kernighan 与 Pike 在《程序设计实践》里用五种语言写同一个程序，Perl 版最短
+（17 行，对比 C 的 150 行）。作者列举了自己用文本处理语言做过的事：从一份 schema
+定义生成 SQL、数据字典、C 库、完整性检查脚本、Web 页面、XML；自动为 Java 属性插入
+getter/setter；合并几万条不同格式的测试数据（还顺带查出原数据的不一致）；\emph{本书
+自身的写作}（从源文件抽取代码片段、加语法高亮、转成排版语言，从而实践 DRY）；
+为 C 头文件生成 Object Pascal 接口；生成 Web 文档。}
+
+\begin{actions}
+\item 选一门脚本语言（Perl/Python/Ruby 皆可）练到能随手写小工具。
+\item 重复的文本转换，写脚本而不是手工改。
+\item 把「一次性转换」纳入自动构建，避免又变成新的重复源。
+\end{actions}
+
+% ------------------------------------------------------------
+\sechead{20. Code Generators}{代码生成器 \textnormal{\small（TIP 29）}}
+
+\begin{ideabox}
+木工面对重复劳动时会做\emph{夹具}（jig）：夹具做对一次，就能反复复制出同样的活，
+既省事又减少出错，让工匠专注于质量。程序员也一样——打造一个\emph{代码生成器}，
+一旦建成，整个项目周期都能几乎零成本地使用。
+\end{ideabox}
+
+\begin{bitext}
+\src{\tip{29}{Write Code That Writes Code}{Once built, a code generator can be
+used throughout the life of the project at virtually no cost.}}
+\tgt{\tip{29}{写能生成代码的代码}{代码生成器一旦建成，就能在整个项目生命周期里几乎
+零成本地反复使用。}}
+\end{bitext}
+
+\commentary{代码生成器分两类。\textbf{被动生成器}只运行一次，产出的代码从此独立、
+被当作普通源文件编辑和纳入版本控制——它的「出身」会被遗忘；用途包括生成新文件模板、
+做一次性的语言转换（作者从 troff 转 \LaTeX 时写的转换器只 90\% 准确，其余手工修——
+被动生成器\emph{不必完全准确}，你可以自行权衡「完善生成器」与「手修输出」的投入）、
+生成运行时昂贵的查表。\textbf{主动生成器}在每次需要结果时运行，产出物是\emph{可丢弃}
+的（随时能重新生成），这才是真正贯彻 DRY 的关键：让一份知识自动派生出应用需要的所有
+形态。例如由数据库 schema 自动生成访问代码——schema 一变，代码跟着变，若删掉某列，
+高层代码会\emph{编译失败}，你就在编译期而不是用户打电话时才发现问题。作者的经验是：
+\emph{每当你要让两个异构环境协同工作，就该考虑主动代码生成器}。}
+
+\begin{actions}
+\item 发现自己在两个地方维护「同一份知识」时，考虑用生成器替代。
+\item 让派生代码「可丢弃」并纳入构建流程，它就是主动生成器。
+\item 用被动生成器时接受它「不必 100\% 准确」，权衡投入产出。
+\end{actions}
+
+\vspace{0.6em}
+\begin{center}
+\small\itshape\color{ppgray}
+第 3 章导读完。TIP 20--29 的完整标题对照见附录 A。
+\end{center}

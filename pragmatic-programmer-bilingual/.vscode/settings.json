@@ -1,0 +1,47 @@
+{
+  // ===== 编译方案：XeLaTeX 跑两遍（第二遍生成目录/交叉引用）=====
+  "latex-workshop.latex.recipe.default": "xelatex x2",
+  "latex-workshop.latex.recipes": [
+    {
+      "name": "xelatex x2",
+      "tools": ["xelatex", "xelatex"]
+    }
+  ],
+  "latex-workshop.latex.tools": [
+    {
+      "name": "xelatex",
+      "command": "xelatex",
+      "args": [
+        "-synctex=1",
+        "-interaction=nonstopmode",
+        "-file-line-error",
+        "%DOC%"
+      ],
+      // 从 Dock 启动 VSCode 时 PATH 可能不含 TeX，这里显式补上
+      "env": {
+        "PATH": "/Library/TeX/texbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+      }
+    }
+  ],
+
+  // ===== 输出目录与 build.sh 保持一致 =====
+  "latex-workshop.latex.outDir": "%DIR%/build",
+
+  // ===== 保存即编译 =====
+  "latex-workshop.latex.autoBuild.run": "onSave",
+
+  // ===== 预览：用 VSCode 内置 PDF 查看器 =====
+  "latex-workshop.view.pdf.viewer": "tab",
+  "latex-workshop.synctex.afterBuild.enabled": true,
+
+  // ===== 清理辅助文件 =====
+  "latex-workshop.latex.autoClean.run": "onBuilt",
+  "latex-workshop.latex.clean.fileTypes": [
+    "*.aux", "*.bbl", "*.blg", "*.idx", "*.ind", "*.lof", "*.lot",
+    "*.out", "*.toc", "*.fls", "*.fdb_latexmk"
+  ],
+
+  // ===== 减少弹窗干扰 =====
+  "latex-workshop.message.error.show": false,
+  "latex-workshop.message.warning.show": false
+}

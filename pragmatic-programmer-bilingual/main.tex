@@ -1,0 +1,37 @@
+% ============================================================
+%  The Pragmatic Programmer — 中英对照
+%  编译：xelatex main.tex （见 build.sh）
+% ============================================================
+\documentclass[11pt,openany]{book}
+
+\input{style/preamble}
+
+\title{\Huge The Pragmatic Programmer\\[0.3em]
+       \LARGE \normalfont 程序员修炼之道\\[0.6em]
+       \large \normalfont 中英对照本}
+\author{Andrew Hunt \and David Thomas}
+\date{}
+
+\begin{document}
+
+\frontmatter
+\maketitle
+\tableofcontents
+
+\mainmatter
+
+\input{content/00-front-matter}
+\input{content/01-a-pragmatic-philosophy}
+\input{content/02-a-pragmatic-approach}
+\input{content/03-the-basic-tools}
+\input{content/04-pragmatic-paranoia}
+\input{content/05-bend-or-break}
+\input{content/06-while-you-are-coding}
+\input{content/07-before-the-project}
+\input{content/08-pragmatic-projects}
+
+\appendix
+\input{content/98-cheatsheet}
+\input{content/99-appendix-tips}
+
+\end{document}

@@ -1,0 +1,129 @@
+% ============================================================
+%  《程序员修炼之道》中英对照排版 - 样式与宏包
+%  引擎：XeLaTeX（需要 fontspec / xeCJK / paracol）
+% ============================================================
+
+\usepackage{fontspec}
+\usepackage{xeCJK}
+
+% ---- 字体（macOS 系统字体）----
+\setmainfont{Times New Roman}          % 英文正文
+\setsansfont{Helvetica Neue}
+\setmonofont{Menlo}
+\setCJKmainfont{Songti SC}             % 中文正文（宋体）
+\setCJKsansfont{PingFang SC}           % 中文无衬线（苹方）
+\setCJKmonofont{Songti SC}
+
+% ---- 页面 ----
+\usepackage[a4paper, top=2.4cm, bottom=2.4cm, left=2.0cm, right=2.0cm]{geometry}
+\usepackage{fancyhdr}
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small\itshape The Pragmatic Programmer}
+\fancyhead[R]{\small 程序员修炼之道}
+\fancyfoot[C]{\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+% ---- 双语并排 ----
+\usepackage{paracol}
+\columnratio{0.5}
+\setlength{\columnsep}{1.8em}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0.55em}
+\linespread{1.12}
+
+% 对照宏：\src{英文} / \tgt{中文}
+% 关键：每对只在 \src 起始处同步一次（* 号），\tgt 切换时不再同步，
+% 否则两次同步会互相追赶造成逐段累积错位。
+\newcommand{\src}[1]{\switchcolumn[0]*\noindent #1\par}
+\newcommand{\tgt}[1]{\switchcolumn[1]\noindent #1\par}
+
+% 不必成对时，直接开环境
+\newenvironment{bitext}{\begin{paracol}{2}\raggedright}{\end{paracol}}
+
+% ---- 标题层级 ----
+\usepackage{titlesec}
+\usepackage{xcolor}
+\definecolor{ppblue}{HTML}{1F4E79}
+\definecolor{ppgray}{HTML}{555555}
+\definecolor{tipbg}{HTML}{F2F6FA}
+
+\titleformat{\chapter}[display]
+  {\normalfont\huge\bfseries\color{ppblue}}
+  {\filright\normalsize\sffamily CHAPTER \thechapter}
+  {1ex}
+  {\Huge}
+\titlespacing*{\chapter}{0pt}{-10pt}{24pt}
+
+\titleformat{\section}
+  {\normalfont\Large\bfseries\color{ppblue}}{\thesection}{0.8em}{}
+\titleformat{\subsection}
+  {\normalfont\large\bfseries\color{ppblue}}{\thesubsection}{0.7em}{}
+
+% ---- 列表 ----
+\usepackage{enumitem}
+\setlist{nosep, leftmargin=1.4em}
+
+% ---- Tip 提示框 ----
+\usepackage[most]{tcolorbox}
+\newtcolorbox{tipbox}[1][]{
+  colback=tipbg, colframe=ppblue, boxrule=0.6pt, arc=2pt,
+  left=6pt, right=6pt, top=5pt, bottom=5pt, #1
+}
+\newcounter{tipcounter}
+% \tip{<全书编号>}{<英文标题>}{<说明>}
+\newcommand{\tip}[3]{%
+  \begin{tipbox}
+    {\footnotesize\sffamily\bfseries\color{ppblue}TIP #1}\par
+    \vspace{2pt}{\bfseries #2}\par
+    \vspace{2pt}{\itshape\small\color{ppgray} #3}
+  \end{tipbox}%
+}
+
+% ---- 杂项 ----
+\usepackage{hyperref}
+\hypersetup{colorlinks=true, linkcolor=ppblue, urlcolor=ppblue}
+\usepackage{booktabs}
+\usepackage{longtable}
+
+\newcommand{\chapterplaceholder}[2]{%
+  \chapter{#1}
+  \begin{center}
+  \begin{minipage}{0.86\textwidth}
+  \itshape\small\color{ppgray}
+  #2
+  \end{minipage}
+  \end{center}
+}
+
+% ---- 双语导读版式 ----
+% 小节标题（英文 + 中文）
+\newcommand{\sechead}[2]{%
+  \section*{#1\\[0.2em]{\large\normalfont #2}}%
+  \addcontentsline{toc}{section}{#1}%
+}
+
+% 核心论点框
+\newtcolorbox{ideabox}[1][核心论点]{%
+  enhanced, colback=tipbg, colframe=ppblue!70, boxrule=0.6pt, arc=2pt,
+  left=8pt, right=8pt, top=6pt, bottom=6pt,
+  colbacktitle=ppblue, coltitle=white,
+  fonttitle=\bfseries\sffamily\small,
+  title={#1},
+}
+
+% 解读（中文评论）
+\newcommand{\commentary}[1]{%
+  \par\medskip
+  \noindent{\small\bfseries\color{ppblue}解读\ }\ignorespaces
+  {\small #1}\par
+}
+
+% 实践清单
+\newenvironment{actions}{%
+  \par\medskip\noindent{\small\bfseries\color{ppblue}实践清单}\par
+  \begin{itemize}[leftmargin=1.4em,itemsep=1pt,topsep=2pt]
+    \small
+}{%
+  \end{itemize}\par
+}

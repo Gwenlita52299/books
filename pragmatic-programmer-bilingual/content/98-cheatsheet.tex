@@ -1,0 +1,100 @@
+% ============================================================
+%  附录：TIP 速查卡 —— 70 条 tip 的一句话速记
+% ============================================================
+
+\chapter{TIP Cheatsheet\quad TIP 速查卡}
+
+\noindent{\small 全书 70 条 tip 的一句话速记，按章分组，供快速回顾。完整标题对照见
+下一节。}
+
+\vspace{0.6em}
+
+\newcommand{\ck}[3]{%
+  \par\noindent{\bfseries\color{ppblue}#1}\quad #2\par
+  \nobreak\vspace{1pt}{\small\color{ppgray}#3}\par\vspace{4pt}}
+
+\section*{第一章　务实的哲学（TIP 1--10）}
+\ck{TIP 1}{Care About Your Craft 关心你的手艺}{不在意把事做好，就别做软件。}
+\ck{TIP 2}{Think! About Your Work 思考！关于你的工作}{做事时实时审视，别开「自动驾驶」。}
+\ck{TIP 3}{Provide Options, Don't Make Lame Excuses 提供选项，别找蹩脚借口}{出错时给方案，不给借口。}
+\ck{TIP 4}{Don't Live with Broken Windows 不要容忍破窗}{发现即修；一时修不好，先「钉木板」。}
+\ck{TIP 5}{Be a Catalyst for Change 做变革的催化剂}{先做小而可用的成品，再顺水推舟扩展。}
+\ck{TIP 6}{Remember the Big Picture 记住大局}{别被温水煮了——定期跳出来看全局。}
+\ck{TIP 7}{Make Quality a Requirements Issue 把质量当作需求问题}{「够好」由用户参与界定。}
+\ck{TIP 8}{Invest Regularly in Your Knowledge Portfolio 定期投资知识资产}{习惯比投入量更重要。}
+\ck{TIP 9}{Critically Analyze What You Read and Hear 批判地分析所读所闻}{多问一句：谁在从中获利？}
+\ck{TIP 10}{It's Both What You Say and the Way You Say It 说什么与怎么说同样重要}{对方没听进去＝没在沟通。}
+
+\section*{第二章　务实的方法（TIP 11--19）}
+\ck{TIP 11}{DRY 不要重复自己}{每份知识只留一份权威表示。}
+\ck{TIP 12}{Make It Easy to Reuse 让复用变得容易}{复用比自写更省事，人才会复用。}
+\ck{TIP 13}{Eliminate Effects Between Unrelated Things 消除不相关事物的影响}{追求正交：改动不蔓延。}
+\ck{TIP 14}{There Are No Final Decisions 没有最终决定}{决策写在沙滩上，别刻在石头上。}
+\ck{TIP 15}{Use Tracer Bullets to Find the Target 用曳光弹寻找目标}{端到端打通，换取即时反馈。}
+\ck{TIP 16}{Prototype to Learn 用原型学习}{价值在学到的东西，不在产出的代码。}
+\ck{TIP 17}{Program Close to the Problem Domain 贴近问题领域编程}{用领域的语言说话、报错。}
+\ck{TIP 18}{Estimate to Avoid Surprises 估算以避免意外}{单位暗示精度；先问用途与所需准确度。}
+\ck{TIP 19}{Iterate the Schedule with the Code 让进度表随代码迭代}{时间表靠\emph{本项目}的经验定。}
+
+\section*{第三章　基础工具（TIP 20--29）}
+\ck{TIP 20}{Keep Knowledge in Plain Text 知识存纯文本}{自描述，且任何工具都能处理。}
+\ck{TIP 21}{Use the Power of Command Shells 善用命令行}{一行管道常胜过十次点击。}
+\ck{TIP 22}{Use a Single Editor Well 熟练一个编辑器}{统一到肌肉记忆：手不离键盘。}
+\ck{TIP 23}{Always Use Source Code Control 始终用版本控制}{哪怕单人一周、哪怕不是源码。}
+\ck{TIP 24}{Fix the Problem, Not the Blame 解决问题，不归咎于人}{bug 是谁的错都不重要，它都是你的问题。}
+\ck{TIP 25}{Don't Panic 不要惊慌}{说「不可能」时，是你的某个假设错了。}
+\ck{TIP 26}{``select'' Isn't Broken select 没有坏}{见蹄印先想马、别想斑马。}
+\ck{TIP 27}{Don't Assume It---Prove It 别假设——去证明}{惊讶程度正比于你对那段代码的信任。}
+\ck{TIP 28}{Learn a Text Manipulation Language 学一门文本处理语言}{用它试想法只要半小时，而非五小时。}
+\ck{TIP 29}{Write Code That Writes Code 写能生成代码的代码}{一份知识自动派生所有形态。}
+
+\section*{第四章　务实的偏执（TIP 30--35）}
+\ck{TIP 30}{You Can't Write Perfect Software 你写不出完美软件}{接受它，然后转向防御。}
+\ck{TIP 31}{Design with Contracts 用契约设计}{前置/后置/不变式：接受严格，承诺极少。}
+\ck{TIP 32}{Crash Early 尽早崩溃}{死程序比瘸程序危害小。}
+\ck{TIP 33}{If It Can't Happen, Use Assertions 用断言守「不可能」}{别在上线时抽掉安全网。}
+\ck{TIP 34}{Use Exceptions for Exceptional Problems 异常只用于异常问题}{别把它当常规控制流。}
+\ck{TIP 35}{Finish What You Start 有始有终}{谁分配谁释放；逆序释放，统一顺序。}
+
+\section*{第五章　弯曲，或折断（TIP 36--43）}
+\ck{TIP 36}{Minimize Coupling Between Modules 最小化模块间耦合}{迪米特法则：别链式「伸手」。}
+\ck{TIP 37}{Configure, Don't Integrate 配置，而非集成}{会变的东西做成配置项。}
+\ck{TIP 38}{Put Abstractions in Code, Details in Metadata 抽象进代码，细节进元数据}{一般情形写引擎，具体情形放外面。}
+\ck{TIP 39}{Analyze Workflow to Improve Concurrency 分析工作流以改善并发}{找出本可并行却被串行的步骤。}
+\ck{TIP 40}{Design Using Services 用服务来设计}{独立并发的对象，藏在一致接口之后。}
+\ck{TIP 41}{Always Design for Concurrency 始终为并发而设计}{对象在任何被调用的时刻都得合法。}
+\ck{TIP 42}{Separate Views from Models 视图与模型分离}{同模型多视图，灵活性很便宜。}
+\ck{TIP 43}{Use Blackboards to Coordinate Workflow 用黑板协调工作流}{让参与者匿名、异步地交换数据。}
+
+\section*{第六章　编码之时（TIP 44--50）}
+\ck{TIP 44}{Don't Program by Coincidence 不要靠巧合编程}{弄清楚它\emph{为什么}能工作。}
+\ck{TIP 45}{Estimate the Order of Your Algorithms 估算算法的量级}{看到循环就估 $O$。}
+\ck{TIP 46}{Test Your Estimates 检验你的估算}{唯一算数的是真实数据下的实测。}
+\ck{TIP 47}{Refactor Early, Refactor Often 尽早重构，经常重构}{像切肿瘤：早切便宜；动手前先有测试。}
+\ck{TIP 48}{Design to Test 为测试而设计}{契约与测试一起设计；先测子组件。}
+\ck{TIP 49}{Test Your Software, or Your Users Will 你不测试，用户就会替你测试}{测试是文化，不是技术。}
+\ck{TIP 50}{Don't Use Wizard Code You Don't Understand 不要用你不理解的向导代码}{交织进你代码的，就得你来负责。}
+
+\section*{第七章　项目之前（TIP 51--59）}
+\ck{TIP 51}{Don't Gather Requirements---Dig for Them 不要收集需求——去挖掘需求}{分清需求、策略与实现。}
+\ck{TIP 52}{Work with a User to Think Like a User 与用户共事，像用户一样思考}{亲自去当一段时间的用户。}
+\ck{TIP 53}{Abstractions Live Longer than Details 抽象比细节活得更久}{千年虫的教训：抽象出 DATE。}
+\ck{TIP 54}{Use a Project Glossary 使用项目术语表}{一词一义，人人可及。}
+\ck{TIP 55}{Don't Think Outside the Box---Find the Box 别跳出框框——先找到框框}{区分绝对约束与先入之见。}
+\ck{TIP 56}{Listen to Nagging Doubts 倾听内心的疑虑}{用原型区分「好判断」与「拖延」。}
+\ck{TIP 57}{Some Things Are Better Done than Described 有些事做胜过说}{过度规定会扼杀技巧与机会。}
+\ck{TIP 58}{Don't Be a Slave to Formal Methods 不要做形式化方法的奴隶}{圆圈和箭头不是好主子。}
+\ck{TIP 59}{Expensive Tools Do Not Produce Better Designs 昂贵的工具不产生更好的设计}{看输出时，忘掉工具的价格。}
+
+\section*{第八章　务实的项目（TIP 60--70）}
+\ck{TIP 60}{Organize Around Functionality, Not Job Functions 围绕功能组织，而非职务}{按功能拆成自足的小团队。}
+\ck{TIP 61}{Don't Use Manual Procedures 不要用手工流程}{脚本比人更可重复。}
+\ck{TIP 62}{Test Early. Test Often. Test Automatically. 早测试，常测试，自动化测试}{bug 发现越早，修复越便宜。}
+\ck{TIP 63}{Coding Ain't Done 'Til All the Tests Run 测试全跑通，编码才算完}{通过全部测试才叫「可用」。}
+\ck{TIP 64}{Use Saboteurs to Test Your Testing 用「破坏者」测试你的测试}{故意造 bug，确认测试会报警。}
+\ck{TIP 65}{Test State Coverage, Not Code Coverage 测试状态覆盖，而非代码覆盖}{行覆盖不等于状态覆盖。}
+\ck{TIP 66}{Find Bugs Once 同一个 bug 只找一次}{漏网的 bug，必须补测试兜住。}
+\ck{TIP 67}{Treat English as Just Another Programming Language 把英语当成另一种编程语言}{注释写「为什么」，不写「如何」。}
+\ck{TIP 68}{Build Documentation In, Don't Bolt It On 把文档做进去，而不是补上去}{唯一权威源，其余视图自动派生。}
+\ck{TIP 69}{Gently Exceed Your Users' Expectations 温和地超越用户的期望}{给惊喜，不给惊吓。}
+\ck{TIP 70}{Sign Your Work 为你的作品署名}{让名字成为品质的标志。}

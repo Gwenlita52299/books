@@ -1,0 +1,320 @@
+% ============================================================
+%  第 2 章 双语导读 —— A Pragmatic Approach
+%  形式：中文概述 + 关键原句短引用 + 解读 + 实践清单
+% ============================================================
+
+\chapter{A Pragmatic Approach}
+\markboth{Chapter 2}{A Pragmatic Approach}
+
+\begin{center}
+{\large\color{ppblue} 务实的方法}
+\end{center}
+
+\begin{bitext}
+\src{There are certain tips and tricks that apply at all levels of software
+development, ideas that are almost axiomatic\ldots\ These approaches are
+rarely documented as such.}
+\tgt{有些技巧适用于软件开发的各个层面，几乎是公理般的道理……但它们很少被
+当作\emph{原则}白纸黑字地写下来。}
+\end{bitext}
+
+\noindent{\small 本章把这些散落在设计、项目管理、编码讨论里的通用原则收拢到一起。
+七个小节两两相关：\emph{重复的危害}与\emph{正交性}是一对（前者说别把知识重复，后者说
+别把同一块知识拆散到多个组件）；\emph{曳光弹}与\emph{原型}是一对（都是应对未知，
+但产物不同）；\emph{可逆性}讲如何让决策不致命；\emph{领域语言}讲让代码贴近问题；
+最后\emph{估算}讲如何面对有限的时间。}
+
+\vspace{0.5em}
+
+% ------------------------------------------------------------
+\sechead{7. The Evils of Duplication}{重复的危害 \textnormal{\small（TIP 11、12）}}
+
+\begin{ideabox}
+知识的\emph{不稳定}是这一节的出发点：需求会变、法规会变、算法会行不通，所以程序员
+其实\emph{一直}处在维护状态，而不是软件发布后才开始维护。而维护最大的敌人是「重复」——
+同一个知识点在系统里出现多次，改一处就得记得改其余处。作者因此提出全书最著名的原则
+\textbf{DRY}。
+\end{ideabox}
+
+\begin{bitext}
+\src{Every piece of knowledge must have a single, unambiguous, authoritative
+representation within a system.}
+\tgt{系统中的每一份知识，都必须有\emph{唯一}、\emph{无歧义}、\emph{权威}的一份
+表示。}
+\end{bitext}
+
+\begin{bitext}
+\src{\tip{11}{DRY---Don't Repeat Yourself}{The alternative is to have the same
+thing expressed in two or more places. It isn't a question of whether
+you'll remember: it's a question of when you'll forget.}}
+\tgt{\tip{11}{DRY——不要重复自己}{否则同一件事会在两处或多处出现。问题不在于你\emph{会
+不会}忘记同步，而在于你\emph{什么时候}会忘。}}
+\end{bitext}
+
+\commentary{作者把重复归成「四个 i」：\textbf{强加的重复}（Imposed，语言/环境似乎逼你
+重复，比如头文件与实现的重复、文档与代码的重复——对策是写代码生成器、把知识放进元数据，
+关键是让转换\emph{持续自动}而非一次性）、\textbf{无意的重复}（Inadvertent，设计失误，
+比如 Truck 和 DeliveryRoute 都存了 driver，或者在 Line 类里同时存 start/end 和
+length——后者应由前两者\emph{计算}得出）、\textbf{懒惰的重复}（Impatient，赶进度抄一段
+改改，作者举 Y2K 千年虫为例）、\textbf{开发者之间的重复}（Interdeveloper，最难查——
+某个州政府审计发现上万份程序\emph{各自}实现了一遍社保号校验）。对策是加强沟通、
+设立「项目图书管理员」、把工具脚本集中存放、互相读代码。}
+
+\begin{bitext}
+\src{\tip{12}{Make It Easy to Reuse}{Foster an environment where it's easier to
+find and reuse existing stuff than to write it yourself. If it isn't easy,
+people won't do it.}}
+\tgt{\tip{12}{让复用变得容易}{营造一种环境，让\emph{找到并复用}已有的东西比\emph{自己
+重写}更省事。如果复用得费劲，就没人会去复用。}}
+\end{bitext}
+
+\begin{actions}
+\item 改任何一处知识时，先问：这份知识在系统里还有别的表示吗？
+\item 头文件与实现、文档与代码之间\emph{不}重复同一段说明。
+\item 把容易重复的规则（校验、格式、常量）集中到一处，或由元数据自动生成。
+\end{actions}
+
+% ------------------------------------------------------------
+\sechead{8. Orthogonality}{正交性 \textnormal{\small（TIP 13）}}
+
+\begin{ideabox}
+「正交性」借自几何：两条线成直角即相互独立——沿一条移动，在另一条上的投影不变。
+在计算里，它表示\emph{解耦}：两件事正交，就是改动其中一个不影响另一个。良好的系统里，
+数据库代码与用户界面正交——你换界面不动数据库，换数据库不动界面。
+\end{ideabox}
+
+\commentary{作者用大峡谷直升机讲反面例子：直升机的每个操纵输入都有「次级效应」，
+压低左手操纵杆会让机头下坠、机身左旋，于是你不得不同时补偿右手操纵杆和脚踏——手脚
+忙个不停，因为这是个\emph{非正交}的系统。结论是：
+「When components of any system are highly interdependent, there is no such
+thing as a local fix.」高度相互依赖的组件之间，不存在「局部修复」这回事。}
+
+\begin{bitext}
+\src{\tip{13}{Eliminate Effects Between Unrelated Things}{Design components that
+are self-contained: independent, and with a single, well-defined purpose.}}
+\tgt{\tip{13}{消除不相关事物之间的影响}{把组件设计成自足的：彼此独立，且各自有单一、
+明确定义的职责。}}
+\end{bitext}
+
+\commentary{正交带来两大收益：\textbf{提高生产力}（改动局部化，测试量减少；把 n 件事
+与 m 件事正交组合能得到 $n\times m$ 的功能，若不正交则相互重叠、结果更少），
+\textbf{降低风险}（出问题的模块被隔离、便于整块替换；系统更健壮、更易测试、对第三方
+厂商的依赖被隔离在局部）。作者把正交性应用到团队（衡量标准：一次改动需要多少人参与，
+人越多越不正交）、设计（分层是强有力的正交手段；问自己「改一个需求会影响几个模块」，
+理想答案是「一个」）、工具库（警惕引入破坏正交性的库，如 RMI 强制你处理位置相关的异常）、
+编码（写「害羞的代码」、避免全局数据、避免相似函数）、测试与文档。最后点题：正交与
+DRY 相辅相成——DRY 减少\emph{内部重复}，正交减少\emph{组件间相互依赖}。}
+
+\begin{actions}
+\item 改一个需求时数一数：牵动了几个模块？目标是「一个」。
+\item 别用你无法控制的事物的属性做标识（例如拿电话号码当客户 ID）。
+\item 引入第三方库前问：它是否逼我在代码里做本不该有的改动？
+\end{actions}
+
+% ------------------------------------------------------------
+\sechead{9. Reversibility}{可逆性 \textnormal{\small（TIP 14）}}
+
+\begin{ideabox}
+工程师和管理层都偏爱「单一、简单的答案」，因为它们方便写进计划表。但现实不配合：
+今天成立的事实，明天可能就得变。每一次关键决策都会让项目「锁定」到一个更窄的可能性上；
+当关键决策积累多了，目标就小到一阵风就能吹偏。问题的根源在于：\emph{关键决策往往
+不易逆转}。
+\end{ideabox}
+
+\begin{bitext}
+\src{Nothing is more dangerous than an idea if it's the only one you have.
+\upshape\small\hfill---Emil-Auguste Chartier, 1938}
+\tgt{一个想法若成了你唯一的选择，那它最危险。\hfill---Emil-Auguste Chartier，1938}
+\end{bitext}
+
+\begin{bitext}
+\src{\tip{14}{There Are No Final Decisions}{Instead of carving decisions in stone,
+think of them as written in the sand at the beach.}}
+\tgt{\tip{14}{没有最终决定}{不要把决策刻在石头上，把它当作写在沙滩上的字——随时可能有
+一道浪把它抹掉。}}
+\end{bitext}
+
+\commentary{作者的建议是：靠 DRY、解耦、元数据这些手段，减少\emph{不可逆}决策的数量。
+比如把「数据库」抽象成「提供持久化服务」，那么从厂商 A 换到厂商 B 就不必大动干戈；
+把「部署形态」做成配置项，standalone / 客户端-服务器 / n 层就能灵活切换。核心心态是
+承认「我们第一次未必做出最佳选择」，于是刻意保持灵活——包括在架构、部署、厂商集成这些
+层面，而不只是代码层面。}
+
+\begin{actions}
+\item 面对关键选择时先问：万一要反悔，代价有多大？能不能把它做成可配置的？
+\item 用抽象接口把第三方产品「藏」在身后，换厂商时只动一层。
+\item 架构/部署/厂商集成，也要像代码一样保持灵活。
+\end{actions}
+
+% ------------------------------------------------------------
+\sechead{10. Tracer Bullets}{曳光弹 \textnormal{\small（TIP 15）}}
+
+\begin{ideabox}
+在黑暗中用机枪射击有两种打法：一种是先精确测定目标位置、环境条件、弹药规格，
+再用射表算出精确的仰角方位——「一次算准，然后开枪祈祷」；另一种是每隔几发装一颗
+\emph{曳光弹}，它燃烧发光，让你\emph{立刻}看到弹着点，从而调整瞄准。曳光弹的反馈即时、
+且与实战环境一致。开发新项目也是如此——你在黑暗中找目标，需求模糊、技术生疏、
+环境必变。作者推荐用「曳光弹式开发」。
+\end{ideabox}
+
+\begin{bitext}
+\src{\tip{15}{Use Tracer Bullets to Find the Target}{Tracer code is not disposable:
+you write it for keeps. It contains all the error checking, structuring,
+documentation, and self-checking that any piece of production code has.}}
+\tgt{\tip{15}{用曳光弹寻找目标}{曳光代码\emph{不是}一次性的：你会长期保留它。它包含
+生产代码该有的一切——错误检查、结构、文档、自检。}}
+\end{bitext}
+
+\commentary{关键是\emph{端到端打通}：把各个组件用最简单但真实的方式连起来，先做出
+一个「能跑通但功能不全」的骨架（作者举例：一个能列出整张表的查询，就足以证明 UI ↔
+库 ↔ 服务器这条链路是通的）。之后在每个组件上并行地\emph{逐步加实}。好处很多：
+用户能\emph{尽早看到东西在动}（信心与参与感提升）、开发者有了\emph{可依附的结构}、
+随时有一个\emph{集成平台}（每日多次集成，而非一次性大爆炸集成）、永远有东西可演示、
+进度更容易衡量。注意曳光弹\emph{不保证命中}——打偏了就调整瞄准，这正是它的意义。}
+
+\commentary{作者特别澄清「曳光代码」与「原型」的区别：原型是为了探究系统的\emph{特定
+方面}，用完后\emph{丢弃重写}；曳光代码则是\emph{精简但完整}、构成最终系统骨架的一部分。
+「Prototyping generates disposable code. Tracer code is lean but complete.」可以理解为：
+原型是开枪前的侦察与情报收集。}
+
+\begin{actions}
+\item 面对高度不确定的新项目，先做一条端到端打通的「细线」，而不是逐层造好再拼接。
+\item 用曳光代码当集成平台，每天（多次）集成，而不是攒到最后一刻。
+\item 分清你是在做「会被丢弃的原型」还是「会保留的曳光骨架」。
+\end{actions}
+
+% ------------------------------------------------------------
+\sechead{11. Prototypes and Post-it Notes}{原型与便利贴 \textnormal{\small（TIP 16）}}
+
+\begin{ideabox}
+汽车厂商会造很多原型车，各自只测试某个特定方面（空气动力学、造型、结构），
+因为原型远比量产便宜。软件原型同理：用来\emph{分析并暴露风险}，以极低成本换取
+纠错机会。原型不必是代码——便利贴适合给工作流和应用逻辑建模，界面可以用白板、
+画图软件画个假界面。
+\end{ideabox}
+
+\begin{bitext}
+\src{\tip{16}{Prototype to Learn}{Prototyping is a learning experience. Its value
+lies not in the code produced, but in the lessons learned.}}
+\tgt{\tip{16}{用原型来学习}{做原型是一次学习经历。它的价值\emph{不在}产出的代码，而在
+你学到的东西。}}
+\end{bitext}
+
+\commentary{适合拿原型来探究的：架构、既有系统中的新功能、外部数据的结构/内容、
+第三方工具或组件、性能问题、界面设计。做原型时可以\emph{刻意忽略}的东西：正确性
+（可以用假数据）、完整性（只覆盖一条预设输入）、健壮性（可能崩得很难看）、风格
+（基本没有注释/文档）。作者建议原型用\emph{比项目其余部分更高级}的语言来写
+（Perl/Python/Tcl 之类），以便快速拼装。}
+
+\commentary{一个重要的告诫：\emph{务必让所有人明白原型是一次性代码}。演示得很像模像样
+的原型很容易误导人，如果预期没设好，管理层可能坚持要把原型（或它的后代）直接上线。
+作者打了个比方：你可以用轻木和胶带造出很棒的概念车原型，但你不会开它去挤高峰期的车流。
+若你所在的团队文化很可能误读原型的目的，那么改用「曳光弹」路线更稳妥。}
+
+\begin{actions}
+\item 拿不准的地方，先做原型；明确这次要回答的问题是什么。
+\item 原型里大胆用假数据、跳过错误处理——但要提前声明这是易耗品。
+\item 想验证架构时，连代码都可以不写，白板 + 便利贴即可。
+\end{actions}
+
+% ------------------------------------------------------------
+\sechead{12. Domain Languages}{领域语言 \textnormal{\small（TIP 17）}}
+
+\begin{ideabox}
+语言会影响你如何思考问题，也会扭曲或启发解法——用 Lisp 思维设计和用 C 思维设计，
+结果不同。更重要的是：\emph{问题领域自己的语言}往往就暗示了编程解法。作者主张，
+能贴近领域词汇写代码时就要贴近，甚至进一步用领域的\emph{词汇、语法、语义}来编程。
+\end{ideabox}
+
+\begin{bitext}
+\src{The limits of language are the limits of one's world.
+\upshape\small\hfill---Ludwig Wittgenstein}
+\tgt{语言的界限，即世界的界限。\hfill---路德维希·维特根斯坦}
+\end{bitext}
+
+\begin{bitext}
+\src{\tip{17}{Program Close to the Problem Domain}{By coding at a higher level of
+abstraction, you are free to concentrate on solving domain problems, and
+can ignore petty implementation details.}}
+\tgt{\tip{17}{贴近问题领域编程}{在更高的抽象层次上编码，你就能专注于解决领域问题，
+而忽略琐碎的实现细节。}}
+\end{bitext}
+
+\commentary{作者展示了用户用自然语言描述的流程，如何直接被整理成一行行「迷你语言」
+（如 \texttt{From X25LINE1 (Format=ABC123) \{ Put TELSTAR1\ldots \}}）。这种语言起初
+可以只是\emph{规约}（捕捉需求），也可以进一步\emph{真正实现}，于是规约就变成了可执行
+代码。附带好处是\emph{领域专属的报错}：格式名写错时，不会抛「未声明的标识符」，而是
+告诉你「``AB123'' 不是已知格式，已知的有 ABC123、XYZ43B……」——用用户听得懂的话报错。}
+
+\commentary{实现上从简到繁：简单的行式格式用 \texttt{switch} 或正则即可；更正式的
+语法先写 BNF，再交给 yacc/bison 之类的解析器生成器；也可以\emph{扩展}已有语言
+（如把应用功能集成进 Python）。作者区分\emph{数据语言}（产出数据结构，如 sendmail
+配置、Windows .rc 资源文件）与\emph{命令式语言}（会被真正执行，含语句与控制结构）。
+最后有个务实的取舍：语法太简单则\emph{好解析但难读难扩展}（sendmail 就是反例）；
+由于多数应用都会超期服役，作者建议\emph{一开始就选更复杂可读的语法}，初期投入会在
+后期维护里连本带利收回。}
+
+\begin{actions}
+\item 留意用户嘴里反复出现的「句式」，它可能就是一门迷你语言的雏形。
+\item 让报错信息用\emph{领域的词汇}说话，而不是编译器术语。
+\item 若应用还要活很久，语法宁愿复杂一点、可读可扩展一点。
+\end{actions}
+
+% ------------------------------------------------------------
+\sechead{13. Estimating}{估算 \textnormal{\small（TIP 18、19）}}
+
+\begin{ideabox}
+「把《战争与和平》用 56k 调制解调器传完要多久？」「一百万条姓名地址要多少磁盘？」
+这些问题都\emph{缺信息}，但如果你会估算，就都能回答——而且在估算的过程中，你会更了解
+程序所栖居的那个世界。练到对数量级有直觉，你就能一眼判断某个方案是否可行。
+\end{ideabox}
+
+\begin{bitext}
+\src{\tip{18}{Estimate to Avoid Surprises}{By learning to estimate\ldots you will
+be able to show an apparent magical ability to determine their feasibility.}}
+\tgt{\tip{18}{估算以避免意外}{学会估算之后……你将表现出一种近乎神奇的能力——一眼判断
+方案是否可行。}}
+\end{bitext}
+
+\commentary{\textbf{多准才算准？}先判断答案\emph{用于何处}：奶奶问「你几点到」是决定
+做午饭还是晚饭，而水下快没氧气的潜水员要精确到秒。\textbf{单位会暗示精度}——说「大约
+130 个工作日」反而显得精确，说「大概半年」则意味着五到七个月都算。作者建议按周期
+选单位：1--15 天报「天」，3--8 周报「周」，8--30 周报「月」，30 周以上\emph{先想清楚
+再报}。}
+
+\commentary{\textbf{估算从哪来？}所有估算都基于对问题的\emph{模型}。方法链是：
+\emph{先问做过的人} → 弄清被问的到底是什么（包括\emph{范围}）→ 建一个粗略的心智模型
+→ 拆成组件、找出各参数如何相互作用 → 给每个参数赋值（重点盯住\emph{乘除型}的关键参数，
+加减型的影响小）→ 计算多个版本、给出带条件的答案（如「有 SCSI 总线和 64MB 内存时约
+0.75 秒，48MB 时约 1 秒」）。还要\emph{记录}你的估算，事后对照找差异原因，下一次才会更准。}
+
+\begin{bitext}
+\src{\tip{19}{Iterate the Schedule with the Code}{The only way to determine the
+timetable for a project is by gaining experience on that same project.}}
+\tgt{\tip{19}{让进度表随代码迭代}{确定一个项目时间表的唯一办法，是在\emph{这个项目本身}
+上积累经验。}}
+\end{bitext}
+
+\commentary{面对大型项目，常规估算规则会失效。作者主张\emph{增量开发}，每轮重复：
+检查需求 → 分析风险 → 设计/实现/集成 → 与用户验证。一开始对「要几轮、每轮多长」
+只有模糊感觉是正常的——除非你做过几乎一样的项目（同团队、同技术），否则硬要锁定
+就是瞎猜。做完第一轮后据此修正，每轮都更准，信心随之增长。这招管理层未必喜欢
+（他们想要开工前就有一个硬数字），但你得帮他们理解：进度由团队、生产率和环境共同决定。}
+
+\begin{bitext}
+\src{What to say when asked for an estimate? You say ``I'll get back to you.''}
+\tgt{被问到估算时该怎么说？你说：「我回头答复你。」}
+\end{bitext}
+
+\begin{actions}
+\item 被要估算时，先问清\emph{用途}和\emph{所需精度}，别在茶水间随口报数。
+\item 报数时用「单位」暗示精度；超过 30 周的项目，先想清楚再开口。
+\item 记录每次估算与实际的偏差，事后复盘原因。
+\item 大项目用增量迭代，让进度表跟着代码走。
+\end{actions}
+
+\vspace{0.6em}
+\begin{center}
+\small\itshape\color{ppgray}
+第 2 章导读完。TIP 11--19 的完整标题对照见附录 A。
+\end{center}

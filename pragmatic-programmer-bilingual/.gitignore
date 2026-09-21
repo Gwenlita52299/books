@@ -1,0 +1,14 @@
+# 编译产物
+build/
+*.aux
+*.log
+*.out
+*.toc
+*.synctex.gz
+
+# macOS
+.DS_Store
+
+# 从原书抽取的全文文本（版权原因不入库）
+text/*.txt
+text/chapters/
