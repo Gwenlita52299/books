@@ -1,0 +1,791 @@
+% ============================================================
+%  第 4 章 Communication 导读
+% ============================================================
+\chapter{Communication}
+\begin{center}
+\begin{minipage}{0.9\textwidth}
+\itshape\small\color{dsgray}
+进程间通信是一切分布式系统的核心。本章先回到\textbf{基础}（foundations）：分层协议、OSI 参考模型
+与通信分类（持久/瞬态、同步/异步）；再看两种主流高层模型——\textbf{远程过程调用}（RPC）
+与\textbf{面向消息的通信}（message-oriented communication，含 socket、ZeroMQ、MPI、
+消息队列与 AMQP）；最后讨论把数据发给多个接收者的\textbf{组播通信}（multicast）：
+基于树的确定性方案、泛洪、以及概率式的 gossip 传播。
+\end{minipage}
+\end{center}
+
+\sechead{4.1 Foundations}{基础}
+
+在深入讨论之前先回顾一些根本问题：先简要讨论网络通信协议（一切分布式系统的基础），
+再换一个角度对分布式系统中常见的通信类型进行分类。
+
+\subsection*{4.1.1 分层协议（Layered Protocols）}
+由于没有共享内存，分布式系统中的一切通信都建立在\textbf{发送和接收（低层）消息}之上：
+进程 P 要在自己的地址空间构造消息，再执行系统调用让操作系统把消息经网络发给 Q；
+但要让 P 与 Q 不发生混乱，两者必须就所发比特的\textbf{含义}达成一致。为理清众多层次与问题，
+ISO 制定了\textbf{开放系统互连参考模型}（ISO OSI，常简称 OSI 模型）。要强调：
+作为 OSI 一部分开发的\textbf{协议}从未被广泛使用、基本已死，但\textbf{模型本身}对理解计算机网络
+相当有用。OSI 模型为让\textbf{开放系统}互联：开放系统即愿意用标准规则（规定消息的格式、内容与
+含义）与任何其他开放系统通信的系统，这些规则即\textbf{通信协议}；一台机器要通信，
+大家须就所用协议达成一致。协议提供\textbf{通信服务}，有两种：\textbf{面向连接}服务在交换数据前
+须显式建立连接、可能协商参数，完毕再释放连接（电话是典型）；\textbf{无连接}服务无需事先建立，
+发送方准备好就直接发第一条消息（投信进邮筒即一例）。计算机中两者都很常见。
+
+\medskip\noindent OSI 模型把通信分为七层（图 4.1），每层向上一层提供一种或多种服务，
+从而把“把消息从 A 送到 B”分解为可独立解决的可管理片段；每层向上提供\textbf{接口}，
+接口由一组操作构成、共同定义该层愿意提供的服务。七层自下而上为：\textbf{物理层}
+（标准化两台计算机如何连接、0 和 1 如何表示）、\textbf{数据链路层}（检测并尽量纠正传输错误、
+让收发方保持同步）、\textbf{网络层}（路由消息、处理拥塞）、\textbf{传输层}（直接支持应用，
+如建立可靠通信、支持实时流）、\textbf{会话层}（支持应用间会话）、\textbf{表示层}
+（规定与主机无关的数据表示方式）、\textbf{应用层}（其余一切：邮件、Web 访问、文件传输协议等）。
+当 P 要与远程 Q 通信，它构造消息、经接口交给应用层；应用层在前面加首部，经 6/7 接口交给表示层，
+表示层再加自己的首部往下传……有的层还在末尾加尾部；到最底层由物理层把消息（此时形如图 4.2）
+放到物理传输介质上。消息到达 Q 所在机器后向上传递，每层剥掉并检查自己的首部，
+最后到达进程 Q，Q 可沿反向路径应答；第 $n$ 层首部中的信息供第 $n$ 层协议使用。
+某系统所用协议的集合称为\textbf{协议族（protocol suite）}或\textbf{协议栈}。
+\textbf{重要的是区分参考模型与其实际协议}：如前所述 OSI 协议从不受欢迎，
+而 Internet 开发的 TCP、IP 等协议则不然。
+
+\begin{ideabox}[Note 4.1：OSI 各层的 Internet 对应]
+\textbf{低层协议}：最下面三层实现计算机网络的基本功能。物理层关心 0/1 的传输（电压、速率、
+能否双向同时、连接器形状与引脚含义），其协议标准化电气、光学、机械与信号接口，
+使一台机器发出的 0 比特确实被收成 0 而非 1（如串行通信的 USB 标准）。数据链路层把比特分组为
+\textbf{帧（frame）}、确保每帧正确接收：在帧首尾放特殊比特模式作标记，并以某种方式累加帧内所有字节
+算出\textbf{校验和}附于帧后；接收方重算并比对，一致则接受，不一致则请发送方重传；帧在首部带
+\textbf{序号}以区分彼此。局域网通常无需发送方定位接收方，广域网则像一张标有城市与道路的大地图，
+消息可能要多跳、每跳选择出线，如何选最佳路径即\textbf{路由}、是网络层的主要任务；
+问题还在于最短路径未必最佳，真正要紧的是\emph{延迟}（与流量、排队消息数相关、随时间变化），
+故有的路由算法适应变化负载、有的只基于长期均值。目前最广用的网络协议是无连接的
+\textbf{IP}，IP 包（网络层消息的术语）无需任何建立即可发送，每个包独立路由、不选定也不记忆内部路径。
+\textbf{传输协议}：传输层补足网络层接口未提供、但构建网络应用通常需要的服务，
+把底层网络变成应用开发者可用的东西。包可能丢失，有的应用自行恢复、有的偏好可靠连接，
+传输层负责提供此服务：把消息切成足够小的片段、各赋序号后发送，其首部讨论哪些包已发/已收、
+接收方还能接受多少、哪些需重传等。可靠传输连接（按定义是面向连接的）可建于面向连接或无连接的
+网络服务之上：前者若包到达则顺序正确，后者则可能后发先至，须由传输层软件重整，
+以维持“传输连接像一根大管子——放进去的消息无损地、按同样顺序出来”的假象，
+提供这种\textbf{端到端}行为是传输层的重要方面。Internet 传输协议是 \textbf{TCP}，
+\textbf{TCP/IP} 现已成为网络通信事实标准；协议族还支持无连接传输协议 \textbf{UDP}
+（本质是 IP 加些小改进），不需要面向连接的用户程序通常用 UDP。此外还有支持实时传输的
+\textbf{RTP}（一种框架协议，规定实时数据的包格式但不提供保证投递的机制，并规定监控与控制
+RTP 包传输的协议），以及作为 TCP 替代的 \textbf{SCTP}（主要差别在于 SCTP 把数据分组成消息，
+而 TCP 只在进程间搬运字节）。\textbf{高层协议}：传输层之上 OSI 还区分三层，
+实践中只用到应用层；在 Internet 协议族中，传输层之上的一切被归在一起。
+会话层本质是传输层的增强版，提供对话控制（跟踪当前谁在说话）与同步设施（允许在长传输中插入
+检查点，崩溃后只需回到最近检查点而非开头），实践中很少受支持、Internet 协议族中甚至没有，
+但在开发中间件方案时“会话”概念相当相关。表示层不同于低层（负责把比特可靠高效地从发送方送到
+接收方），它关心\textbf{比特的含义}：可定义包含姓名、地址、金额等字段的记录，并让发送方通知
+接收方“某消息以某种格式包含某记录”，从而使内部表示不同的机器更易通信。OSI 应用层原意是容纳
+一批标准网络应用（电子邮件、文件传输、终端仿真），如今已成为“无法归入下面各层的所有应用与协议”
+的容器；从 OSI 视角看，几乎所有分布式系统都只是应用。该模型欠缺的是对
+\textbf{应用、应用特定协议与通用协议}的清晰区分：如 FTP 定义客户端与服务器间传文件的协议，
+不应与 \texttt{ftp} 程序（实现该协议的终端用户应用）混淆；HTTP 的典型应用是 Web 浏览器与服务器，
+但现在也用于并非固有绑定 Web 的系统（如 Java 的对象调用机制可用 HTTP 请求受防火墙保护的远程对象）。
+还有许多对众多应用有用、却不能算传输协议的通用协议，常归为\textbf{中间件协议}。
+\end{ideabox}
+
+\medskip\noindent\textbf{中间件协议}：中间件在逻辑上（大体）处于 OSI 应用层，但含许多值得拥有独立层次的
+通用协议。例如 \textbf{DNS} 是查找“名字对应网络地址”的分布式服务：按 OSI 参考模型它是个应用、
+逻辑上位于应用层，但它显然提供通用、与应用无关的服务，可以说属于中间件。
+再如\textbf{认证协议}（提供所声称身份的证据）并不紧密绑定某个具体应用，可作为通用服务集成进
+中间件系统；\textbf{授权协议}（只给已认证用户/进程访问其被授权资源）同样具有通用、
+与应用无关的性质。\textbf{分布式提交协议}确保一组（可能散布多台机器的）进程中要么都执行某操作、
+要么都不执行（即\textbf{原子性}，广泛用于事务），它们可提供与应用无关的接口，从而构成通用事务服务，
+通常属于中间件而非 OSI 应用层。最后，\textbf{分布式锁协议}可保护资源免受跨多台机器的多个进程同时
+访问，也不难设计成与应用无关、经简单接口访问，故一般属中间件。这些例子并不直接关乎通信，
+但也有许多中间件通信协议：如\textbf{远程过程调用}让进程能在本地调用“实际在远程机器上实现”的过程，
+属最古老的中间件服务之一、用于实现访问透明；类似还有为实时数据传输设置与同步流的高层通信服务；
+有些中间件系统还提供可扩展到广域网数千接收者的\textbf{可靠组播}服务。如此分层便得到图 4.3 的
+\textbf{简化参考模型}：会话层与表示层被单个\textbf{中间件层}（含与应用无关的协议）取代，
+网络与传输服务被归为操作系统通常提供的\textbf{通信服务}，由 OS 管理用于建立通信的最底层硬件。
+
+\begin{closeread}
+\pair{Due to the absence of shared memory, all communication in distributed systems is based on sending and receiving (low level) messages.}{由于没有共享内存，分布式系统中的一切通信都建立在发送和接收（低层）消息之上。}
+\pair{In the case of a connection-oriented service, before exchanging data the sender and receiver first explicitly establish a connection, and possibly negotiate specific parameters of the protocol they will use.}{就面向连接的服务而言，在交换数据之前，发送方与接收方首先显式建立连接，并可能协商它们将使用的协议的特定参数。}
+\pair{It is important to distinguish a reference model from its actual protocols.}{重要的是把参考模型与其实际协议区分开来。}
+\end{closeread}
+
+\origin{§4.1.1，原书 p.183–190（图 4.1 OSI 分层/接口/协议、图 4.2 网络上的典型消息、图 4.3 适配后的参考模型）}
+
+\subsection*{4.1.2 通信的类型（Types of Communication）}
+本节余下聚焦高层中间件通信服务。可把中间件看作客户端-服务器计算中的一项附加服务（图 4.4）。
+以电子邮件系统为例：投递系统核心可视为中间件通信服务，每台主机跑一个用户代理让用户撰写、
+发送、接收邮件；发送方代理把邮件交给投递系统并期待最终送达，接收方代理连接投递系统查看是否有邮件，
+有则转给用户代理供阅读。电子邮件是通信\textbf{持久（persistent）}的典型：\textbf{持久通信}中，
+已提交待传的消息由通信中间件\textbf{存储到送达为止}；中间件会把它存在图 4.4 所示的一处或多处存储设施中。
+于是发送应用提交后不必继续执行，接收应用在消息提交时也不必在执行。相反，\textbf{瞬态通信
+（transient communication）}中，消息只在收发应用执行期间被存储：若因传输中断或接收方当前未活动
+而无法投递，就直接丢弃。典型的传输层通信服务只提供瞬态通信，此时通信系统由传统\textbf{存储转发
+路由器}构成，路由器若无法把消息交给下一跳或目的主机，就直接丢弃。
+
+\medskip\noindent 除持久/瞬态外，通信还分\textbf{同步/异步}。\textbf{异步通信}的特征是发送方提交消息后
+立即继续，这意味着消息在提交时被中间件（暂时）存储；\textbf{同步通信}中发送方被阻塞、
+直到其请求被确认接受。同步可在三处发生：其一，发送方阻塞到中间件通知将接手传输请求；
+其二，阻塞到请求已投递给预定接收方；其三，阻塞到请求被\textbf{完全处理}，即到接收方返回响应之时。
+实践中出现各种持久性与同步性的组合：常见的“持久 + 请求提交时同步”是许多
+\textbf{消息队列系统}的常用方案（后文讨论）；“瞬态 + 请求被完全处理后同步”也被广泛使用，
+正对应\textbf{远程过程调用}（下节讨论）。
+
+\begin{closeread}
+\pair{With persistent communication, a message that has been submitted for transmission is stored by the communication middleware as long as it takes to deliver it to the receiver.}{在持久通信中，已提交待传的消息会由通信中间件一直存储，直到将其投递给接收方为止。}
+\pair{In contrast, with transient communication, a message is stored by the communication system only as long as the sending and receiving application are executing.}{相反，在瞬态通信中，消息只在发送方与接收方应用都处于执行状态期间被通信系统存储。}
+\pair{The characteristic feature of asynchronous communication is that a sender continues immediately after it has submitted its message for transmission.}{异步通信的标志性特征是：发送方在提交待传消息后立即继续执行。}
+\end{closeread}
+
+\origin{§4.1.2，原书 p.190–192（图 4.4 中间件作为应用级通信中的中介服务）}
+
+\sechead{4.2 Remote procedure call}{远程过程调用}
+
+许多分布式系统基于进程间显式消息交换，但 \texttt{send} 与 \texttt{receive} 完全不掩盖通信，
+而对获得\textbf{访问透明}而言这种掩盖很重要。这个问题久已存在，直到 1980 年代研究者
+（Birrell \& Nelson 1984）引入一种全新做法才有了转机——想法本身简单，但含义常很微妙。
+一言以蔽之：允许程序调用位于其他机器上的过程。当机器 A 上的进程调用机器 B 上的过程时，
+A 上的调用进程被挂起，被调过程在 B 上执行；信息可经参数从调用者传到被调者、再经过程结果返回。
+\textbf{对程序员完全看不到任何消息传递}。此法即 \textbf{远程过程调用（remote procedure call, RPC）}。
+它虽简单优雅，却存在微妙问题：调用与被调过程运行在不同机器、处于不同地址空间，带来复杂性；
+参数与结果须传递，若两台机器不同则更麻烦；且任一方或双方都可能崩溃，各种失败各带来不同问题。
+
+\subsection*{4.2.1 RPC 的基本操作（Basic RPC operation）}
+RPC 的目标是让远程调用尽量像本地调用，即追求\textbf{透明}：调用过程不应察觉被调过程在另一台机器上
+执行，反之亦然。设某程序可访问某数据库、能向存储列表追加数据并返回修改后列表的引用，
+该操作由例程 \texttt{append} 提供：\texttt{newlist = append(data, dbList)}。传统单机系统中
+\texttt{append} 由链接器从库中取出并插入目标程序，可能只是一段用几次文件操作访问数据库的短过程；
+即便它最终只做几次基本文件操作，调用方式仍是通常的“把参数压栈”，程序员不知道也不该知道其实现细节。
+RPC 以类似方式实现透明：当 \texttt{append} 实为远程过程时，提供给调用客户端的是\textbf{另一个版本}
+的 \texttt{append}，称为 \textbf{client stub}；它同样以正常调用序列被调用，但不执行追加操作，
+而是把参数打包成消息、请求发给服务器（图 4.6），随后调用 \texttt{receive} 阻塞自己直到应答返回。
+消息到达服务器后，服务器操作系统将其交给 \textbf{server stub}——client stub 在服务器端的对应物，
+是一段把网络到来的请求转成本地过程调用的代码；server stub 通常已调用 \texttt{receive}、
+阻塞等待入站消息。它从消息解包参数、再以通常方式调用服务器过程；从服务器视角看，
+就像被客户端直接调用——参数与返回地址都在栈上，一切正常。服务器完成工作后照常把结果返回调用者
+（此处即 server stub）。server stub 拿回控制权后，把结果打包成消息、调用 \texttt{send} 回送客户端，
+随后通常再调用 \texttt{receive} 等待下一个请求。结果消息到达客户端机器后，操作系统经先前调用的
+\texttt{receive} 把它交给 client stub，客户端进程随之解除阻塞；client stub 检视消息、解包结果、
+复制给调用者并照常返回。当调用者在 \texttt{append} 调用后拿回控制时，它只知道往列表追加了数据，
+完全不知道工作是在另一台机器上远程完成的。\textbf{这种让客户端“幸福地无知”正是整个方案的妙处}：
+对它而言，远程服务通过普通（本地）过程调用来访问，而非 \texttt{send}/\texttt{receive}；
+消息传递的全部细节都藏在两个库过程里，正如真正发起系统调用的细节藏在传统库中一样。
+总结起来，RPC 分以下步骤：(1) 客户端过程以正常方式调用 client stub；(2) client stub 构造消息、
+调用本地操作系统；(3) 客户端 OS 把消息发给远程 OS；(4) 远程 OS 把消息交给 server stub；
+(5) server stub 解包参数、调用服务器；(6) 服务器完成工作、把结果返回 stub；(7) server stub 把结果
+打包、调用其本地 OS；(8) 服务器 OS 把消息发给客户端 OS；(9) 客户端 OS 把消息交给 client stub；
+(10) stub 解包结果、返回给客户端。这些步骤的净效果，是把“客户端过程到 client stub 的本地调用”
+转成“对服务器过程的本地调用”，而客户端与服务器都不知中间步骤或网络的存在（图 4.7）。
+
+\begin{ideabox}[Note 4.2：常规过程调用与参数传递]
+以 \texttt{newlist = append(data, dbList)} 为例：其目的是把全局列表对象 \texttt{dbList} 追加一个
+数据元素 \texttt{data}。要点是在 C 等语言中 \texttt{dbList} 实现为指向列表对象的\textbf{引用（指针）}，
+而 \texttt{data} 可能直接以其值表示。调用时两者都压栈供 \texttt{append} 实现访问：
+\texttt{data} 遵循 \textbf{call-by-value}，\texttt{dbList} 则遵循 \textbf{call-by-reference}（图 4.5）。
+值参数只是个已初始化的局部变量，被调过程可改它但不影响调用方原值；而指针参数压栈的是列表对象在
+主存中的地址，故追加会真正修改列表对象——这一差别对 RPC 相当重要。还有一种机制
+\textbf{call-by-copy/restore}：像传值那样先把变量复制到栈、调用后再复制回去覆盖调用方原值，
+多数情况下与传引用效果相同，但若同一参数在参数表出现多次等情况语义会不同。
+用哪种机制通常由语言设计者定、是语言的固定属性：C 中标量总传值、数组总传引用；
+有些 Ada 编译器对 inout 参数用 copy/restore、另一些用传引用（语言定义容许二选一，语义因此略模糊）；
+Python 中所有变量都传引用，但有些实际被复制到局部变量、从而模仿了传值行为。
+\end{ideabox}
+
+\begin{closeread}
+\pair{The idea behind RPC is to make a remote procedure call look as much as possible as a local one.}{RPC 背后的想法，是让一次远程过程调用尽可能地看起来像本地调用。}
+\pair{A server stub is the server-side equivalent of a client stub: it is a piece of code that transforms requests coming in over the network into local procedure calls.}{server stub 是 client stub 在服务器端的对应物：它是一段把经网络到来的请求转换为本地过程调用的代码。}
+\pair{This blissful ignorance for the client is the beauty of the whole scheme.}{客户端的这种“幸福的无知”，正是整个方案的妙处所在。}
+\end{closeread}
+
+\origin{§4.2.1，原书 p.192–197（图 4.5 本地调用参数传递、图 4.6 RPC 原理、图 4.7 doit(a,b) 的调用步骤、图 4.8 Python RPC 示例）}
+
+\subsection*{4.2.2 参数传递（Parameter passing）}
+client stub 的职责是取参数、打包成消息发给 server stub——听起来直截了当，却并不那么简单。
+把参数打包进消息称为 \textbf{parameter marshaling}。回到 \texttt{append}：要确保两个参数
+（\texttt{data} 与 \texttt{dbList}）经网络传送并被服务器正确解释。须意识到服务器看到的只是一串
+传入字节，消息通常不附带“这些字节是什么意思”的信息；而且还会再次遇到同一问题：这些\textbf{元信息}
+又该如何被服务器识别为元信息？除解释问题外，还须处理\textbf{字节在内存中的摆放}可能因机器架构而异：
+有些机器（如 Intel 处理器）从右到左给字节编号，许多其他机器（如较老的 ARM）反之——Intel 格式称
+\textbf{小端（little endian）}、旧 ARM 格式称\textbf{大端（big endian）}。字节序对网络同样重要，
+机器传输（进而接收）比特与字节的次序也可能不同，而\textbf{网络上通常用大端}。解法是把待发数据
+转成\textbf{机器与网络无关的格式}，并确保通信双方期待相同的消息数据类型：后者通常可在编程语言层面
+解决，前者靠依机器而异的例程在“机器/网络无关格式”之间来回转换。\textbf{编组与解组（marshaling and
+unmarshaling）正是关于这种向中立格式的转换，构成 RPC 必不可少的组成部分}。
+
+\medskip\noindent 接下来是个难题：\textbf{指针（更一般地，引用）如何传递}？答案是：只能极其困难地传，
+甚至根本传不了。指针只在其所在进程的地址空间内有意义。回到 \texttt{append}：第二个参数
+\texttt{dbList} 实现为指向数据库中列表的引用；若该引用只是指向调用方主存中某本地数据结构的指针，
+就不能简单传给服务器——传过去的指针值多半指向完全不同的东西。一种解法是干脆禁止指针与引用参数，
+但它们太重要，此路极不可取，实际也常无必要。首先，引用参数常用于\textbf{固定大小的数据类型}
+（如静态数组）或能在运行时轻易算出大小的动态类型（如字符串、动态数组）；此时可直接复制该参数所指
+的\textbf{整个数据结构}，用 copy-by-value/restore 取代传引用——虽语义不总完全一致，但常常足够好；
+一个明显优化是：当 client stub 知道所指数据只读，调用结束时就不必复制回去，
+传值便足够。更复杂的类型常也能支持，尤其当语言支持这些类型时——如 Python 或 Java 支持用户自定义类，
+语言系统可为这些类型提供全自动的编组与解组；但一旦涉及大型、嵌套或其他复杂的动态数据结构，
+自动（解）编组可能不可用、甚至未必可取。指针与引用的问题在于它们只在本地有意义；
+可用\textbf{全局引用（global references）}缓解：对调用与被调进程都有意义的引用。
+例如若客户端与服务器能访问同一文件系统，传\textbf{文件句柄}而非指针或许可行。一个重要观察是：
+\textbf{两个进程都必须确切知道传全局引用时该做什么}——若考虑带相关数据类型的全局引用，
+调用与被调进程应对“可执行哪些操作”有一致图景，且都须就“传文件句柄时究竟怎么做”达成一致；
+这些通常可由恰当的编程语言支持解决。
+
+\begin{closeread}
+\pair{Packing parameters into a message is called parameter marshaling.}{把参数打包进消息，称为参数编组（parameter marshaling）。}
+\pair{We now come to a difficult problem: How are pointers, or in general, references passed? The answer is: only with the greatest of difficulty, if at all.}{现在我们遇到一个难题：指针，或更一般地，引用，是如何传递的？答案是：只能极其困难地传递，甚至根本传不了。}
+\pair{Problems can be alleviated by using global references: references that are meaningful to the calling and the called process.}{通过使用全局引用可以缓解这些问题：全局引用即对调用进程与被调进程都有意义的引用。}
+\end{closeread}
+
+\origin{§4.2.2，原书 p.197–201（图 4.9 带正确编组的 RPC 示例、图 4.10 对象按引用或按值传递）}
+
+\subsection*{4.2.3 基于 RPC 的应用支持（RPC-based application support）}
+要掩盖远程过程调用，调用者与被调者须就所交换消息的格式达成一致，并在（例如）传递复杂数据结构时
+遵循相同步骤；换言之，RPC 双方应遵循同一\textbf{协议}，否则 RPC 无法正确工作。
+支持基于 RPC 的应用开发至少有两种方式：其一，让开发者精确指定哪些需要远程调用，
+据此可生成完整的客户端与服务器端 stub；其二，把远程过程调用\textbf{内嵌为编程语言环境的一部分}。
+
+\medskip\noindent\textbf{Stub 生成}：以图 4.11(a) 的函数 \texttt{someFunction} 为例，它有字符、浮点数、
+五个整数组成的数组三个参数。设字长为四字节，RPC 协议可规定：字符放在一个字的最右字节
+（其余三字节留空）、浮点占一个字、数组占与数组长度相等的若干字并在前面放一个给出长度的字
+（图 4.11(b)）。据此，\texttt{someFunction} 的 client stub 知道必须用图 4.11(b) 的格式，
+server stub 也知道该函数的入站消息将是此格式。定义消息格式只是 RPC 协议的一方面、还不够：
+还须客户端与服务器就简单数据结构的表示达成一致，如整数、字符、布尔等——例如协议可规定整数用
+\textbf{二补码}、字符用 16 位 \textbf{Unicode}、浮点用 IEEE 754 格式、且全部小端存储；
+有了这些补充信息，消息才能被无歧义地解释。把编码规则钉到最后一个比特后，剩下的是双方就
+实际的消息交换达成一致：例如可决定用面向连接的传输服务（如 TCP/IP），也可用不可靠数据报服务、
+让客户端与服务器把差错控制作为 RPC 协议的一部分实现；实践中存在多种变体，由开发者指示偏好何种
+底层通信服务。RPC 协议完全定义后，就要实现客户端与服务器 stub。幸运的是，同一协议下不同过程的
+stub 通常只在与应用对接的\textbf{接口}上不同。接口由一批可被客户端调用、由服务器实现的过程组成；
+接口通常以与客户端或服务器相同编程语言提供（严格说并非必须）。为简化，
+接口常通过\textbf{接口定义语言（Interface Definition Language, IDL）}规定，
+再编译成 client stub、server stub 及相应的编译期或运行期接口（图 4.12）。该图展示的是编译型语言
+的情形，不难想象解释型语言也类似；客户端与服务器代码也可用不同语言编写（如客户端 Python、
+服务器 C），此时公共 include 部分将分别为客户端与服务器各含文件。此方案中重要的是
+\textbf{运行库（runtime library）}：它是对实际运行时系统的接口，构成中间件。实践表明，
+用 IDL 能显著简化基于 RPC 的客户端-服务器应用；因为可轻松生成完整的客户端与服务器 stub，
+所有基于 RPC 的中间件系统都提供 IDL 支持应用开发，有时甚至是强制的。
+
+\begin{closeread}
+\pair{To simplify matters, interfaces are often specified through an Interface Definition Language (IDL).}{为简化起见，接口常通过接口定义语言（IDL）来规定。}
+\pair{Practice shows that using an interface definition language considerably simplifies client-server applications based on RPCs.}{实践表明，使用接口定义语言能显著简化基于 RPC 的客户端-服务器应用。}
+\end{closeread}
+
+\origin{§4.2.3，原书 p.201–205（图 4.11 函数与其消息格式、图 4.12 由接口定义文件生成 stub、图 4.13 语言的 RPC 内嵌）}
+
+\subsection*{4.2.4 RPC 的变体（Variations on RPC）}
+与常规过程调用一样，客户端调用远程过程后会\textbf{阻塞}直到应答返回。当没有结果要返回时，
+这种严格的请求-应答行为不必要；当需连续执行多个 RPC 时又可能妨碍效率。下面看两种变体。
+
+\medskip\noindent\textbf{异步 RPC}：为支持根本没有结果返回的情形，RPC 系统可提供
+\textbf{异步 RPC}。其中，服务器原则上在收到 RPC 请求的那一刻\textbf{立即回送一个应答}，
+然后才在本地调用所请求的过程；该应答作为“服务器将处理此 RPC”的确认，客户端收到确认后即继续、
+不再阻塞（图 4.14(b) 对比普通请求-应答的 4.14(a)）。当有结果要返回、但客户端不愿干等时，
+异步 RPC 也有用：典型如客户端需独立联系多台服务器，它可一个接一个发出调用请求、
+使各服务器大致并行工作；全部发完后客户端再开始等待各个结果返回。此类情形适合把通信组织成
+\textbf{异步 RPC + 回调}，又称 \textbf{deferred synchronous RPC}（图 4.15）：客户端先调用服务器、
+等接受后继续；结果可用时服务器发来响应消息、触发客户端的\textbf{回调（callback）}——
+回调是当特殊事件（如到来消息）发生时被调用的用户自定义函数，直白实现是另起一个线程，
+让它在事件发生时阻塞等待、主进程继续，事件发生则解除阻塞并调用该函数。还应注意存在
+\textbf{one-way RPC}：客户端发出请求后立即继续，不等服务器确认接受。其问题是可靠性无保证时，
+客户端无法确知请求是否会被处理（第 8 章再谈）。类似地，deferred synchronous RPC 中客户端也可
+轮询服务器看结果是否就绪，而非让服务器回调。
+
+\medskip\noindent\textbf{组播 RPC}：异步与 deferred synchronous RPC 便于同时执行多个 RPC。
+采用 one-way RPC（服务器不告知客户端已接受其调用请求、而是立即开始处理，客户端发出后即继续），
+\textbf{组播 RPC} 就归结为把 RPC 请求发给\textbf{一组服务器}（图 4.16）：客户端把请求发给两台服务器，
+它们各自独立并行处理，完成后把结果返回客户端并在那里触发回调。有几点需考虑：其一，
+客户端应用可能\textbf{不知道} RPC 实际被转发给了不止一个服务器——例如为提高容错，
+可决定所有操作都由备用服务器执行以便主服务器失败时接管；服务器被复制这一事实可由恰当的 stub
+对客户端完全隐藏，甚至连 stub 也无需知道（例如使用了传输层组播地址）。其二，
+需考虑\textbf{如何处理响应}：客户端是在\textbf{全部}响应到达后继续，还是只等一个？视情况而定。
+服务器为容错而复制时，可只等第一个响应、或等到多数服务器返回相同结果；而若服务器复制是为了
+在不同部分输入上做同样的工作，则其响应可能须先\textbf{合并}客户端才能继续。这些都能藏在客户端 stub 里，
+但应用开发者至少须指定该组播 RPC 的目的。
+
+\begin{closeread}
+\pair{With asynchronous RPCs, the server, in principle, immediately sends a reply back to the client the moment the RPC request is received, after which it locally calls the requested procedure.}{使用异步 RPC 时，服务器原则上在收到 RPC 请求的那一刻立即向客户端回送一个应答，之后才在本地调用所请求的过程。}
+\pair{a multicast RPC boils down to sending an RPC request to a group of servers.}{组播 RPC 归结为把一个 RPC 请求发送给一组服务器。}
+\end{closeread}
+
+\origin{§4.2.4，原书 p.205–208（图 4.14 传统与异步 RPC、图 4.15 deferred synchronous RPC、图 4.16 组播 RPC）}
+
+\sechead{4.3 Message-oriented communication}{面向消息的通信}
+
+RPC 与远程对象调用有助于掩盖分布式系统中的通信、增强访问透明，但二者并非总是合适：
+尤其当\textbf{无法假定接收方在请求发出时正在执行}时，就需要替代的通信服务；同样，
+RPC 固有的同步性（客户端阻塞到请求被处理完）也可能需要被替换。这个“别的东西”就是
+\textbf{消息传递（messaging）}。本节先细看同步行为究竟是什么、有何影响，再讨论假定通信时各方
+正在执行的消息系统，最后考察即使对方未在执行也能交换信息的消息队列系统。
+
+\subsection*{4.3.1 基于 socket 的简单瞬态消息（Simple transient messaging with sockets）}
+许多分布式系统与应用直接建立在传输层提供的简单面向消息模型之上。为更好理解中间件方案中的
+面向消息系统，先讨论经传输层 \textbf{socket} 的消息传递。传输层接口的标准化受到特别关注：
+让程序员用一组简单操作使用整套（消息）协议，也使应用更易移植到其他机器。以 1970 年代
+Berkeley Unix 引入、后被采纳为 POSIX 标准的 \textbf{socket 接口} 为例（仅极少改动）。
+概念上，\textbf{socket 是通信端点}：应用可向它写要发到网络的数据、也可从中读入站数据；
+它是对本地操作系统用于特定传输协议的\textbf{实际端口}的抽象。下面聚焦 TCP 的 socket 操作（图 4.17）。
+服务器一般按序执行前四个操作：调用 \texttt{socket} 为特定传输协议创建新的通信端点
+（内部即为收发消息预留资源）；\texttt{bind} 把本地地址与新 socket 关联（如把机器 IP 与一个
+（可能知名的）端口号绑定到 socket，告诉 OS 服务器只想在该地址与端口接收消息；面向连接通信中
+该地址用于接收入站连接请求）；\texttt{listen} 仅用于面向连接通信，是非阻塞调用，
+让本地 OS 为调用者可接受的最大待处理连接请求数预留足够缓冲；\texttt{accept} 阻塞调用者直到
+连接请求到达，到达后本地 OS 创建一个属性相同的新 socket 并返回给调用者——这使服务器可
+（例如）\texttt{fork} 一个进程用新连接处理实际通信，而原 socket 可回去等待下一个连接请求。
+客户端同样须先 \texttt{socket} 创建，但不必显式绑定本地地址（OS 在建立连接时可动态分配端口）；
+\texttt{connect} 要求调用者指定要发连接请求的传输层地址，客户端阻塞直到连接成功建立，之后双方即可
+经 \texttt{send} 与 \texttt{receive} 交换信息。最后，用 socket 时关闭连接是\textbf{对称}的：
+客户端与服务器都调用 \texttt{close}。尽管规则有许多例外，客户端与服务器进行面向连接通信的
+一般模式如图 4.18 所示。
+
+\begin{closeread}
+\pair{Conceptually, a socket is a communication end point to which an application can write data that are to be sent out over the underlying network, and from which incoming data can be read.}{概念上，socket 是一个通信端点：应用可以向它写入要经底层网络发送的数据，也可以从它读取到来的数据。}
+\pair{closing a connection is symmetric when using sockets, and is established by having both the client and server call the close operation.}{使用 socket 时，关闭连接是对称的，做法是让客户端与服务器都调用 close 操作。}
+\end{closeread}
+
+\origin{§4.3.1，原书 p.208–213（图 4.17 TCP/IP 的 socket 操作、图 4.18 面向连接通信模式、图 4.19–4.20 socket 客户端-服务器示例）}
+
+\subsection*{4.3.2 高级瞬态消息（Advanced transient messaging）}
+标准 socket 方式非常基础、因而也相当脆弱：容易出错；而且 socket 基本只支持 TCP 或 UDP，
+任何额外的消息设施都得由应用程序员另行实现。实践中我们常需更高级的面向消息通信方式，
+以便简化网络编程、超越现有网络协议的功能、更好利用本地资源等。
+
+\medskip\noindent\textbf{用消息模式编程：ZeroMQ}。一种思路基于这样的观察：许多消息应用（或其组件）
+可有效按少数几个简单\textbf{通信模式}来组织；进而为每种模式提供 socket 增强，网络分布式应用便更好写。
+ZeroMQ 即此法（Hintjens 2013；Akgul 2013）。与 Berkeley 一样，ZeroMQ 也提供 socket 承载全部通信，
+实际消息传输一般走 TCP 连接，且本质上都是面向连接的（传输前先建立连接）；
+但连接的建立与维护大体被藏在幕后，程序员无需操心。为更简化，一个 socket 可绑定到\textbf{多个地址}，
+使服务器能经单一接口处理来自很不同来源的消息（例如用一个阻塞 \texttt{receive} 监听多个端口）：
+ZeroMQ socket 因而能支持\textbf{多对一}通信，而不像标准 Berkeley socket 只有一对一；
+同样也支持\textbf{一对多}（即组播）。ZeroMQ 的要旨在于通信是\textbf{异步}的：发送方提交消息给底层
+通信子系统后通常即刻继续。异步与面向连接结合有个有趣副作用：进程可请求建立连接、并随即发送消息，
+即便接收方尚未启动、尚未准备好接受连接请求、更谈不上消息——此时连接请求与随后的消息会排队在
+发送方一侧，由 ZeroMQ 库中另一个线程负责最终建立连接并传输给接收方。简言之，ZeroMQ 通过
+\textbf{成对匹配 socket} 把 socket 通信提升到更高抽象：用于发消息的某类 socket 与用于收消息的对应类
+配套，每对 socket 类型对应一种通信模式。ZeroMQ 支持的三种最重要模式是
+\textbf{request-reply}、\textbf{publish-subscribe} 与 \textbf{pipeline}。request-reply 用于传统
+客户端-服务器通信（如 RPC 常用者）：客户端用 \textbf{REQ} 型 socket 发请求、期待服务器以恰当的
+响应回复，服务器假定用 \textbf{REP} 型 socket；该模式免去调用 \texttt{listen} 与 \texttt{accept}，
+简化开发；且服务器收到消息后再调用 \texttt{send} 会自动指向原发送者，客户端发过消息后调用
+\texttt{recv} 时 ZeroMQ 也假定它在等原接收方的响应（这一思路其实已编码在图 4.20(b) 的本地
+\texttt{sendrecv} 操作中）。publish-subscribe 模式中客户端订阅服务器发布的特定消息（第 2.1.3 节
+协调处见过）：只有客户端订阅了的消息才会被传输，若服务器发布无人订阅的消息则这些消息会丢失；
+最简单形式即服务器向多个客户端\textbf{组播}消息，服务器用 \textbf{PUB} 型 socket、每个客户端用
+\textbf{SUB} 型 socket 并连到服务器的 socket；默认客户端不订阅任何具体消息，故未显式订阅前
+不会收到服务器发布的消息。pipeline 模式的特征是：一个进程想\textbf{推出}其结果，
+假定有其他进程想\textbf{拉入}这些结果；其本质是推出者并不真正关心由哪个其他进程拉走结果——
+第一个可用的就行；同理，从多个进程拉入结果者也是从第一个把结果变得可用的推出进程处拉取。
+pipeline 模式意在让尽可能多的进程保持工作、尽快把结果推出流水线。
+
+\begin{closeread}
+\pair{Essential to ZeroMQ is that communication is asynchronous: a sender will normally continue after having submitted a message to the underlying communication subsystem.}{ZeroMQ 的关键在于其通信是异步的：发送方在把消息提交给底层通信子系统之后通常就会继续执行。}
+\pair{MPI is designed for parallel applications and as such is tailored to transient communication.}{MPI 是为并行应用而设计的，因此它面向的是瞬态通信。}
+\end{closeread}
+
+\medskip\noindent\textbf{消息传递接口（Message-Passing Interface, MPI）}。随高性能多计算机的出现，
+开发者寻求既能方便编写高效应用（抽象层次要合适）、实现开销又极小的面向消息操作。socket 被认定
+不足，原因有二：其一，抽象层次不对，只支持简单的发送与接收；其二，socket 是为经通用协议栈
+（如 TCP/IP）的跨网通信设计的，不适合为高速互连网络（如高性能服务器集群所用者）开发的专有协议，
+后者需要能处理更高级特性（如不同形式的缓冲与同步）的接口。结果多数互连网络与高性能多计算机
+都随附专有通信库，提供丰富且总体高效的通信操作——但互不兼容，应用开发者于是面临可移植性问题。
+硬件与平台无关的需求最终带来一个消息传递标准，就叫 \textbf{MPI}。MPI 面向并行应用，
+因而\textbf{面向瞬态通信}；它直接使用底层网络，并假定进程崩溃、网络分区等严重失败是致命的、
+不需自动恢复。MPI 假定通信发生在一个\textbf{已知进程组}内：每组有标识符，组内每个进程也有
+（局部）标识符，故 (groupID, processID) 对唯一标识消息的源或目的、取代传输层地址；
+一次计算中可有若干可能重叠、且同时执行的进程组。MPI 核心是支持瞬态通信的消息操作（图 4.24），
+要理解其语义可回想图 4.4、把中间件完全看作 MPI 实现；特别是中间件维护自己的缓冲，
+同步常与“所需数据何时从调用应用复制到中间件”相关：\texttt{MPI\_BSEND} 支持瞬态异步通信
+（发送方提交消息，一般先复制到 MPI 运行时系统的本地缓冲，复制完即继续；本地运行时系统在有接收方
+调用接收时把消息从本地缓冲取出并负责传输）；\texttt{MPI\_SEND} 是阻塞发送、语义依赖实现
+（或阻塞到消息被复制到发送方一侧的 MPI 运行时系统，或阻塞到接收方发起接收操作）；
+\texttt{MPI\_SSEND} 提供同步通信（发送方阻塞到其请求被接受进一步处理）；\texttt{MPI\_SENDRECV}
+提供最强形式的同步（发送方发给接收方并阻塞到后者返回应答，基本对应普通 RPC）。
+\texttt{MPI\_SEND} 与 \texttt{MPI\_SSEND} 都有\textbf{避免从用户缓冲复制到本地 MPI 运行时内部缓冲}
+的变体（本质对应异步通信）：\texttt{MPI\_ISEND} 中发送方传消息指针、随即继续，
+为防止通信完成前消息被覆盖，MPI 提供检查完成、必要时阻塞的操作；\texttt{MPI\_ISSEND} 同样只传指针，
+当运行时系统表明已处理消息时，发送方即可保证接收方已接受该消息、正在处理。\texttt{MPI\_RECV}
+接收消息、阻塞调用者直到消息到达；异步变体 \texttt{MPI\_IRECV} 让接收方表明已准备接受消息，
+可检查消息是否到达或阻塞直到到达。这些操作语义并不总是直白，有时不同操作可互换而不影响程序正确性；
+官方说法是支持如此多形式是为了让实现者有足够空间优化性能，愤世嫉俗者则说委员会达不成一致就
+全塞了进去。如今 MPI 已到第四版、有 650 多个操作；考虑到它面向高性能并行应用，这种多样性
+或许更易理解。
+
+\begin{closeread}
+\pair{In practice, we do often need more advanced approaches for message-oriented communication to make network programming easier, to expand beyond the functionality offered by existing networking protocols, to make better use of local resources}{实践中，我们确实常需要更高级的面向消息通信方式，以简化网络编程、超越现有网络协议所提供的功能、更好地利用本地资源。}
+\pair{At the core of MPI are messaging operations to support transient communication}{MPI 的核心，是支持瞬态通信的各种消息操作。}
+\end{closeread}
+
+\origin{§4.3.2，原书 p.213–220（图 4.21 ZeroMQ 客户端-服务器、图 4.22 多播 socket、图 4.23 生产者-工作者、图 4.24 MPI 消息操作）}
+
+\subsection*{4.3.3 面向消息的持久通信（Message-oriented persistent communication）}
+现在看一类重要的面向消息中间件服务，通常称\textbf{消息队列系统}或\textbf{面向消息的中间件
+（message-oriented middleware, MOM）}。消息队列系统为\textbf{持久异步通信}提供广泛支持，
+其本质是提供\textbf{中期存储能力}，无需发送方或接收方在消息传输期间处于活动状态。与 socket
+和 MPI 的一个重要差别是：消息队列系统通常面向“允许耗时以分钟而非秒或毫秒计”的消息传输。
+
+\medskip\noindent\textbf{消息队列模型}：基本思想是应用通过把消息插入特定\textbf{队列}来通信；
+这些消息经一系列通信服务器转发、最终投递到目的地，即便消息发出时目的地宕机也没关系。
+实践中多数通信服务器彼此直连，即消息一般直接传到目的服务器。原则上每个应用有自己私有的队列，
+其他应用可向其发消息；队列只能被其关联应用读取，但也可多个应用共享同一队列。消息队列系统的一个
+重要方面是：发送方一般只得到“消息最终会被插入接收方队列”的保证，\textbf{对消息何时、
+甚至是否真会被读取不作保证}——这完全取决于接收方的行为。这些语义允许通信在\textbf{时间上解耦}
+（如第 2.1.3 节所讨论）：接收方无需在消息发到其队列时正在执行，发送方也无需在其消息被接收方取走时
+正在执行，收发双方可完全独立执行。事实上，消息一旦存入队列就会留到被移走为止，
+无论其发送方或接收方是否在执行——由此得到收发方执行模式的四种组合（图 4.25）：
+(a) 收发双方在整条消息传输期间都在执行；(b) 只有发送方执行、
+接收方被动（无法投递消息的状态），但发送方仍可发消息；(c) 被动的发送方与活动的接收方——
+接收方可读发给它的消息，但不要求各发送方也在执行；(d) 系统在收发双方都被动时仍在存储
+（并可能传输）消息——可以说只有支持这最后一种配置，消息队列系统才真正提供\textbf{持久消息}。
+消息原则上可含任意数据；从中间件视角唯一重要的是\textbf{消息被恰当寻址}，实践中通过给出
+\textbf{系统范围内唯一的队列名}来寻址。有时消息大小受限，但底层系统也可能以对应用完全透明的方式
+做分片与重组；其效果是提供给应用的基本接口可以很简单（图 4.26）：\texttt{PUT}
+（把消息追加到指定队列，非阻塞）、\texttt{GET}（阻塞直到指定队列非空，并移走第一条消息；
+仅当队列空时阻塞；变体可按优先级或匹配模式搜索特定消息）、\texttt{POLL}（非阻塞版：
+检查指定队列、移走第一条，若队列空或没找到指定消息则调用进程继续）、\texttt{NOTIFY}
+（安装一个 handler 作为回调函数，每当有消息被放入指定队列时自动调用）。回调还可用于
+在无进程执行时自动启动一个进程去取队列消息，这常由接收方的一个 daemon 实现，
+它持续监控队列并相应处理。
+
+\medskip\noindent\textbf{消息队列系统的一般架构}。队列由\textbf{queue manager} 管理，
+它要么是独立进程、要么是链接进应用的库。经验法则是：应用一般只能把消息放入\textbf{本地}队列，
+也只能从本地队列取出消息。因此若为应用 A 管理队列的 QMA 作为独立进程运行，
+QMA 与 A 通常放在同一台机器、最坏也在同一局域网（若所有 queue manager 都链接进各自应用，
+就谈不上持久异步消息系统了）。若应用只能往本地队列放消息，则每条消息都须携带目的信息，
+queue manager 负责确保消息到达目的地，于是引出若干问题。第一，目的队列如何寻址：
+为增强位置透明，队列最好有\textbf{逻辑的、与位置无关的名字}；若 queue manager 是独立进程，
+用逻辑名意味着每个名字须关联一个\textbf{联系地址}（如 (host,port) 对），且名字到地址的映射须对
+queue manager 随时可用（图 4.27）；实践中联系地址还携带更多信息，尤其所用协议（如 TCP 或 UDP）。
+第二，名字到地址的映射如何提供给 queue manager：常见做法是做成查表、并复制到所有 manager，
+这显然带来维护问题（每新增或改名一个队列，许多（若非全部）表都需更新），第 6 章将讨论缓解办法。
+第三，与高效维护名字-地址映射相关：我们隐含假定若 queue manager QMA 知道 QMB 处的目的队列，
+QMA 就能直接联系 QMB 传消息——这实际意味着每个 queue manager 的（联系地址）都须为其他所有
+manager 所知，规模一大就有可扩展性问题。实践中常有专门的 queue manager 充当\textbf{路由器}，
+把入站消息转发给其他 queue manager，于是消息队列系统可逐渐长成一个完整的\textbf{应用级覆盖网络}。
+若只需少数路由器了解网络拓扑，则源 queue manager 只需知道“给定目的队列该把消息转发给哪个相邻
+路由器 R”，R 又只需跟踪其相邻路由器以决定再往哪转发，如此等等；当然仍须有所有 queue manager
+（含路由器）的名字-地址映射，但不难想象这样的表可以小得多、也易于维护。
+
+\medskip\noindent\textbf{消息代理（Message brokers）}。消息队列系统的一个重要应用领域是把既有与
+新的应用集成成一个连贯的分布式信息系统。若假定与应用的通信经消息进行，集成就要求各应用能理解
+所收到的消息，实践中这要求发送方的出站消息格式与接收方一致、且语义符合接收方预期——
+收发双方本质上要\textbf{说同一种语言}，即遵循同一消息协议。这样做的问题是：每当一个带自己消息协议的
+应用 A 加入系统，对每个要与 A 通信的其他应用 B 都需提供转换二者消息的手段；在 $N$ 个应用的系统中
+就需 $N\times N$ 个协议转换器。替代方案是约定\textbf{公共消息协议}（如传统网络协议所为），
+但对消息队列系统一般行不通：问题在于这些系统所处的抽象层次——只有当使用该协议的那批进程确实有
+足够多共同点时，公共消息协议才有意义；而组成分布式信息系统的应用往往高度多样，
+发明“一刀切”方案根本不可行。若只聚焦消息的格式与含义，可通过提升抽象层次获得共性，
+如用 \textbf{XML 消息}：消息携带关于自身组织的信息，被标准化的是它们描述内容的方式，
+于是应用可提供能被自动处理的组织信息；当然这通常还不够，还须确保消息语义被充分理解。
+鉴于这些问题，一般做法是“学会与差异共处”，尽量让转换尽可能简单。在消息队列系统中，
+转换由排队网络中的特殊节点 \textbf{message broker} 处理：它充当应用级网关，
+主要目的是转换入站消息使目的应用能理解。注意对消息队列系统而言，broker 只是另一个应用
+（图 4.28），一般不算排队系统的内在部分。broker 可以简单到只是消息的\textbf{重格式化器}：
+如入站消息含一张数据库表（记录以特殊分隔符分隔、记录内字段定长），若目的应用期望不同的记录分隔符、
+且字段变长，broker 即可把消息转成目的所需格式。更高级的设置中，broker 可充当应用级网关，
+其中编码了多个应用的消息协议信息；一般为每对应用各有一个能在两者间转换消息的子程序，
+图 4.28 中该子程序画成 broker 的\textbf{插件}，以强调这类部件可动态插入或移除。最后注意
+broker 常用于高级\textbf{企业应用集成（EAI）}（§1.3.2）：此时它不只（或不只）转换消息，
+而是负责基于消息把应用\textbf{匹配}起来——在发布-订阅模型中，应用以发布形式发消息
+（如发布主题 X 的消息，送达 broker），声明对主题 X 感兴趣（即订阅了这些消息）的应用便从 broker
+收到这些消息，也可做更高级的中介。broker 的核心是一个“把一种消息变换成另一种”的规则库，
+难点在于定义规则与开发插件；多数 broker 产品带精巧的开发工具，但归根结底规则库仍须由专家填充——
+商业产品常被误导性地称为提供“智能”，其实智能只存在于那些专家头脑中；或许更该一致地称其为
+“高级”系统（可即便这样，也常意味着复杂）。
+
+\begin{closeread}
+\pair{Message-queuing systems provide extensive support for persistent asynchronous communication.}{消息队列系统为持久异步通信提供广泛支持。}
+\pair{The basic idea behind a message-queuing system is that applications communicate by inserting messages in specific queues.}{消息队列系统的基本思想是：应用通过把消息插入特定队列来进行通信。}
+\pair{A message broker acts as an application-level gateway in a message-queuing system.}{消息代理（message broker）在消息队列系统中充当应用级网关。}
+\end{closeread}
+
+\origin{§4.3.3，原书 p.220–227（图 4.25 松耦合通信的四组合、图 4.26 队列基本接口、图 4.27 队列级命名与网络级寻址、图 4.28 消息队列系统中的 broker）}
+
+\subsection*{4.3.4 例：高级消息队列协议 AMQP（Example: AMQP）}
+一个有意思的现象是：消息队列系统本部分是为让遗留应用互操作而开发，但在不同消息队列系统之间
+进行操作时却常撞墙；结果一个组织一旦选了厂商 X 的消息队列系统，就可能只能接受 X 才有的方案——
+消息队列方案很大程度是\textbf{专有}的，谈何开放性。2006 年成立工作组以改变此局面，
+促成了 \textbf{高级消息队列协议（Advanced Message-Queuing Protocol, AMQP）} 的规范。
+AMQP 有多个版本，1.0 为最新；也有多种实现，尤其是 1.0 之前的版本——它们在 1.0 确立时已相当流行。
+由于 pre-1.0 与 1.0 差异很大却又各有稳定用户群，我们可能见到 pre-1.0 服务器与（无可否认不兼容的）
+1.0 服务器并存。本节将有意混合 pre-1.0 与 1.0、抓住 AMQP 的要点与精神；实现包括 RabbitMQ
+（Roy 2018）与 Apache ActiveMQ。
+
+\medskip\noindent\textbf{基础}：AMQP 围绕应用、queue manager 与队列。采用许多网络场景常见的做法，
+区分作为\textbf{消息服务}的 AMQP、实际的\textbf{消息协议}、以及提供给应用的\textbf{消息接口}。
+为便于说明，先考虑只有一个 queue manager、作为单个独立服务器运行，构成 AMQP 服务的实现；
+应用通过本地接口与该 manager 通信，其间通信按 AMQP 协议进行（图 4.29）。AMQP \textbf{stub}
+把应用（及 queue manager）与消息传输和一般通信的细节隔开，同时实现消息队列接口，
+使应用能使用 AMQP 作为消息队列服务；对 queue manager 而言 stub 与 manager 的区分是显式的，
+但分离的严格程度交由实现决定——不过即便不严格，概念上仍有“处理队列”与“处理相关通信”之别。
+
+\medskip\noindent\textbf{AMQP 通信}：AMQP 允许应用与 queue manager 建立\textbf{连接（connection）}，
+连接是若干\textbf{单向信道（channel）}的容器。信道的生命周期可以高度动态，而连接被假定相对稳定；
+连接与信道的这种区别便于高效实现，尤其可用单条传输层 TCP 连接\textbf{多路复用}应用与 manager 间的
+许多不同信道。实践中 AMQP 假定用 TCP 建立 AMQP 连接。双向通信靠\textbf{会话（session）}建立：
+会话是两条信道的逻辑分组；一个连接可有多个会话，但注意信道不必属于某个会话。
+最后，真正传输消息需要 \textbf{link}：概念上 link（更确切说其端点）跟踪正在传输的消息状态，
+因而在应用与 queue manager 间提供\textbf{细粒度流控}，且可对不同消息在同一会话或连接上同时施加不同
+控制策略；流控靠\textbf{信用（credit）}建立——接收方可告诉发送方它被允许在特定 link 上发多少消息。
+传消息时应用把消息交给本地 AMQP stub，每次消息传输关联一个特定 link。消息传输通常分三步：
+(1) 发送方给消息分配唯一标识符并在本地记为 \textbf{unsettled} 状态，stub 把消息传给服务器，
+服务器端的 AMQP stub 也记为 unsettled，随后交给 queue manager；(2) 假定接收应用
+（此处即 queue manager）处理该消息并向其 stub 报告完成，stub 把此信息传给原发送方，
+原发送方的 AMQP stub 处消息进入 \textbf{settled} 状态；(3) 原发送方的 AMQP stub 告知原接收方的 stub
+“传输已 settled”（即原发送方从此忘掉该消息），接收方 stub 也可丢弃有关该消息的一切、
+正式记为 settled。注意：由于接收应用可向底层 AMQP 通信层表明它已处理完消息，
+\textbf{AMQP 因而能实现真正的端到端通信可靠性}——应用（无论客户端应用还是真正的 queue manager）
+都可指示 AMQP 通信层继续持有消息（即消息保持 unsettled 状态）。
+
+\medskip\noindent\textbf{AMQP 消息（messaging）}：逻辑上发生在处理通信的那一层之上，应用可在此表明
+需要对消息做什么、也可看到迄今发生了什么。消息在\textbf{两个节点}间传递，节点有三类：
+\textbf{producer}、\textbf{consumer}、\textbf{queue}；通常 producer 与 consumer 节点代表普通应用，
+queue 用于存储并转发消息，而 queue manager 通常由多个 queue 节点组成。要传输消息，
+两个节点须在它们之间建立 link。接收方可向发送方表明其消息是被\textbf{接受}（成功处理）还是
+\textbf{拒绝}，这意味着会向原发送方返回通知。AMQP 还支持大消息的分片与重组，为此会发送额外通知。
+当然，AMQP 的重要方面之一是对\textbf{持久消息}的支持，靠若干机制实现。第一，消息可标记为
+\textbf{durable}，表示源方期望任何中间节点（如队列）在失败时能恢复；无法保证这种持久性的中间节点
+须拒绝该消息。第二，源或目标节点也可表明自身持久性：若持久，是只维护其状态，
+还是也维护 durable 消息的（unsettled）状态？把后者与 durable 消息结合，即可实现可靠的
+消息传输与持久消息。AMQP 确实是“消息协议”意义上的协议——它本身不支持例如发布-订阅原语，
+而是期望这类问题由更高级的专有 queue manager 处理（类似 §4.3.3 的消息代理）。
+最后，没理由不能让一个 queue manager 连到另一个 queue manager；事实上把 queue manager 组织成
+覆盖网络、让消息从 producer 路由到其 consumer 相当常见。AMQP 并不规定该覆盖网络应如何构建与管理，
+不同 AMQP 系统提供者给出不同方案；尤其重要的是规定消息应如何经网络路由，归根结底管理员需要
+手工完成大量此类规定，只有在覆盖网络结构规整（如环或树）时才较易给出必要路由细节。
+
+\medskip\noindent\textbf{实践中的 AMQP}：较流行的消息中介实现之一是 \textbf{RabbitMQ} 服务器
+（Roy 2018 详述），它基于 AMQP 0.9 版、同时完全支持 1.0。两版的重要差别是 \textbf{exchange}
+的使用：生产者不直接操作队列，而是联系 exchange，由它把消息放入一个或多个队列；本质上
+exchange 让生产者能对 queue manager 做同步或异步 RPC，exchange 从不存储消息，只确保消息被放入
+合适的队列。图 4.30(a) 的简单生产者即为例：先建立与服务器通信的手段（此处建立默认连接），
+随后在服务器范围内创建 exchange 与两个队列，再把两队列用同一个名为 \texttt{example-key} 的简单
+key 绑定到同一 exchange；创建消息后，生产者告诉 exchange 按指定 key 把它发布到所有与之绑定的队列，
+于是 exchange 会把消息放入两个队列——图 4.30(b) 的简单消费者从任一队列取消息并打印其内容，
+即可验证。exchange 与队列有许多选项；重要的是，用 RabbitMQ 等系统可一般性地搭建高级覆盖网络
+以实现应用级消息路由，但同时这些网络的维护很容易变成噩梦。
+
+\begin{closeread}
+\pair{AMQP allows an application to set up a connection to a queue manager; a connection is a container for a number of one-way channels.}{AMQP 允许应用与 queue manager 建立连接；连接是若干单向信道的容器。}
+\pair{because the receiving application can indicate to the underlying AMQP communication layer that it is done with a message, AMQP enables true end-to-end communication reliability.}{由于接收应用可以向底层 AMQP 通信层表明它已处理完一条消息，AMQP 得以实现真正的端到端通信可靠性。}
+\end{closeread}
+
+\origin{§4.3.4，原书 p.227–232（图 4.29 单服务器 AMQP 实例、图 4.30 RabbitMQ 的生产者与消费者）}
+
+\sechead{4.4 Multicast communication}{组播通信}
+
+分布式系统通信中的一个重要主题是支持把数据发给多个接收者，即\textbf{组播通信（multicast
+communication）}。多年来该主题属于网络协议领域，涌现过许多网络层与传输层方案
+（Janic 2005；Obraczka 1998）。所有方案的一大问题是设置信息传播的通信路径，实践中涉及巨大的
+管理开销、常需人工干预；加上方案长期未收敛，ISP 对支持组播一直持保留态度（Diot 等 2000）。
+随着\textbf{对等（P2P）技术}尤其\textbf{结构化覆盖网络}管理的出现，建立通信路径变得更容易；
+由于 P2P 方案通常部署在应用层，便涌现出多种\textbf{应用层组播}技术。组播也可用设置显式通信路径
+之外的方式实现——本节还将探讨的\textbf{基于 gossip 的信息传播}就提供了简单（但常常效率较低）
+的组播方式。
+
+\subsection*{4.4.1 应用层基于树的组播（Application-level tree-based multicasting）}
+应用层组播的基本思想是把节点组织成一个\textbf{覆盖网络}，用它把信息传播给其成员。
+一个重要观察是\textbf{网络路由器不参与组成员管理}：因此覆盖网络中节点间的连接可能跨越若干物理链路，
+在覆盖网络内路由消息相较网络层路由可能并非最优。一个关键设计问题是\textbf{覆盖网络的构造}，
+本质上两种思路（El-Sayed 等 2003；Hosseini 等 2007；Allani 等 2009）：其一，节点直接组织成
+\textbf{树}，即每对节点间有唯一的（覆盖层）路径；其二，节点组织成\textbf{网格（mesh）}，
+每个节点有多个邻居、每对节点间一般存在多条路径。两者主要差别是后者通常\textbf{健壮性更好}：
+若某连接断开（如某节点失败），仍有机会传播信息、无需立即重组整个网络。
+
+\begin{ideabox}[Note 4.13：在 Chord 中构造组播树]
+一个较简单的方案是在 Chord（见 Note 2.6）中构造组播树，最初为 Scribe 提出
+（Castro 等 2002b），Scribe 是建于 Pastry（Rowstron \& Druschel 2001）之上的应用层组播方案，
+后者也是基于 DHT 的 P2P 系统。设某节点想发起一个组播会话：它生成一个\textbf{组播标识符}
+（如随机选一个 160 位 key）\texttt{mid}，然后查找 \texttt{succ(mid)}——即负责该 key 的节点，
+并提升它为这棵组播树的\textbf{根}。要加入树，节点 P 只需执行 \texttt{lookup(mid)}，
+使一个“请求加入组播组 mid”的查找消息从 P 路由到 \texttt{succ(mid)}。沿途会经过若干节点：
+设先到达 Q，若 Q 此前从未见过针对 mid 的加入请求，它就成为该组的\textbf{转发者（forwarder）}，
+此时 P 成为 Q 的子节点，Q 继续把加入请求向根转发；若下一个节点 R 也还不是转发者，
+它也成为转发者、记下 Q 为其子节点并继续向根发送加入请求。反之，若 Q（或 R）已经是 mid 的转发者，
+它也会把前一个发送者（分别是 P 或 Q）记为自己的子节点，但无需再把加入请求发往根，
+因为 Q（或 R）已经是组播树的成员。像 P 这样显式请求加入者按定义也是转发者。
+于是我们在覆盖网络上构造出一棵组播树，含两类节点：只做帮助者的\textbf{纯转发者}，
+以及同时也是转发者、但显式请求加入的节点。此时组播很简单：节点只需再次执行 \texttt{lookup(mid)}
+把组播消息发往树根，消息随后即可沿树发送。
+\end{ideabox}
+
+\medskip\noindent\textbf{覆盖网络的性能问题}。由上述高层描述可见：一旦把节点组织进覆盖网络，
+建树本身并不难，但建一棵\textbf{高效}的树可能另当别论——我们的描述中，参与树的节点选择
+\textbf{不考虑任何性能指标}，纯基于消息经覆盖网络的（逻辑）路由。取图 4.31 的五节点小覆盖网络
+（节点 A 为组播树根，并标出各物理链路的遍历代价）为例：A 向其他节点组播时，覆盖层的逻辑路由是
+$A\to B\to E\to D\to C$，实际路由按网络层链路为
+$A\to R_a\to R_b\to B\to R_b\to R_a\to R_e\to E\to R_e\to R_c\to R_d\to D\to R_d\to R_c\to C$。
+可见该消息会把链路 $\langle B,R_b\rangle$、$\langle R_a,R_b\rangle$、$\langle E,R_e\rangle$、
+$\langle R_c,R_d\rangle$、$\langle D,R_d\rangle$ \textbf{各遍历两次}。若我们不构造覆盖链路
+$\langle B,E\rangle$ 与 $\langle D,E\rangle$，而改构造 $\langle A,E\rangle$ 与 $\langle C,E\rangle$，
+覆盖网络会更高效，可省去对物理链路 $\langle R_a,R_b\rangle$ 与 $\langle R_c,R_d\rangle$ 的双重遍历。
+应用层组播树的质量一般用三个指标衡量：\textbf{link stress}、\textbf{stretch} 与 \textbf{tree cost}。
+\textbf{link stress} 按链路定义，统计一个包跨过同一条链路的次数：link stress 大于 1 源于
+“逻辑上一个包可能沿两条不同连接转发，而其中部分连接实际对应同一物理链路”（如图 4.31 所示）。
+\textbf{stretch}（或称相对延迟惩罚 RDP）度量“覆盖网络中两节点间的延迟”与“二者在底层网络中
+会经历的延迟”之比：例如 B 到 C 在覆盖网络走
+$B\to R_b\to R_a\to R_e\to E\to R_e\to R_c\to R_d\to D\to R_d\to R_c\to C$、总代价 73 单位，
+而在底层网络本应走 $B\to R_b\to R_d\to R_c\to C$、总代价 47 单位，stretch 为 1.55；
+显然构造覆盖网络的目标是最小化聚合 stretch（或对全部节点对求平均 RDP）。最后，
+\textbf{tree cost} 是全局指标，一般关乎最小化聚合链路代价；若把链路代价取为两端节点间延迟，
+则优化 tree cost 即求\textbf{最小生成树}，使把信息传播到所有节点的总时间最小。
+为略作简化，假定组播组有一个知名节点跟踪已加入树的节点；新节点发加入请求时联系该
+\textbf{rendezvous node}，获得（可能部分的）成员列表，目标是从中选出能作为其父节点的最佳成员。
+该选谁？备选很多，不同方案常常解法迥异。例如只有单一源的组播组，最佳节点显而易见应是\textbf{源}本身
+（此时可保证 stretch 为 1）；但这样做会形成以源为中心的\textbf{星形拓扑}，源很容易过载。
+换言之，节点选择一般会受约束：只能选邻居数不超过 $k$ 的节点（$k$ 是设计参数），
+这一约束严重复杂化建树算法——合适的解可能需要重配置部分既有树（Tan 等 2003 给出广泛综述与评估）。
+
+\begin{closeread}
+\pair{The basic idea in application-level multicasting is that nodes are organized into an overlay network, which is then used to disseminate information to its members.}{应用层组播的基本思想是：把节点组织成一个覆盖网络，再用它把信息传播给其成员。}
+\pair{Link stress is defined per link and counts how often a packet crosses the same link}{link stress 按链路定义，统计一个包跨过同一条链路的次数。}
+\end{closeread}
+
+\origin{§4.4.1，原书 p.232–236（图 4.31 覆盖链路与网络级路由的关系）}
+
+\subsection*{4.4.2 基于泛洪的组播（Flooding-based multicasting）}
+此前我们假定组播消息要被覆盖网络中每个节点收到——严格说这对应\textbf{广播（broadcasting）}。
+一般地，\textbf{组播}指把消息发给全体节点中的\textbf{一个子集}，即某个特定节点组。
+组播的一个关键设计问题是尽量减少使用那些并非消息目标的中间节点：若覆盖网络组织成多级树、
+却只有叶节点才应收到组播消息，那显然会有相当多节点需要存储并转发并非发给它们的消息。
+避免这种低效的一个简单办法是\textbf{为每个组播组各构造一个覆盖网络}，于是把消息 $m$ 组播给组 $G$
+就等同于把 $m$ 广播给 $G$；缺点是属于多个组的节点原则上需为所属每个组各维护一份邻居列表。
+若假定覆盖网络对应一个组播组因而需要广播，最朴素的做法是\textbf{泛洪（flooding）}：
+每个节点把消息 $m$ 转发给每个邻居（\textbf{除了它收到 $m$ 的那个邻居}）；此外，若节点记录它收到并
+转发过的消息，就可直接忽略重复。要理解泛洪的性能，把覆盖网络建模为连通无向图 $G=(V,E)$，
+设 $v_0$ 发起泛洪：原则上除 $v_0$ 外每个节点都会向邻居发一次消息（除了它收到消息的那个邻居），
+于是总共会有 $\delta(v_0)+\sum_{v\in V-v_0}(\delta(v)-1)$ 条消息，其中 $\delta(v)$ 是节点 $v$ 的邻居数。
+对任何无向图 $\sum_{v\in V}\delta(v)=2|E|$，故会发出 $2|E|-|V|+1$ 条消息，使\textbf{泛洪相当低效}；
+只有当 $G$ 是树时泛洪才最优（此时 $|E|=|V|-1$）；最坏情形 $G$ 完全连通、
+$|E|=\binom{|V|}{2}$，导致 $|V|^2$ 量级的消息。
+
+\medskip\noindent 现在假定对覆盖网络结构一无所知、最多只能把它表示成\textbf{随机图}
+（简化为任意两顶点以概率 $p_{\text{edge}}$ 相连，即 \textbf{Erdös-Rényi 图}，Erdös \& Rényi 1959）。
+注意这等于把覆盖网络看作\textbf{非结构化 P2P 网络}、且对其构建方式无任何信息。以概率
+$p_{\text{edge}}$ 相连、共 $\binom{|V|}{2}$ 条边，不难看出可期望覆盖网络有
+$|E|=\frac{1}{2}\cdot p_{\text{edge}}\cdot|V|\cdot(|V|-1)$ 条边；图 4.32 给出不同
+$p_{\text{edge}}$ 下节点数与边数的关系——即便 $p_{\text{edge}}$ 很小，边数也很容易变得很大。
+要减少消息数，可用 Banaei-Kashani 与 Shahab（2003）提出、Oikonomou 与 Stavrakakis（2007）
+形式化分析的\textbf{概率泛洪（probabilistic flooding）}：想法很简单——节点泛洪消息 $m$
+需转发给某特定邻居时，以概率 $p_{\text{flood}}$ 转发。效果可能很显著：发送的消息总数随
+$p_{\text{flood}}$ 线性下降。但也有风险：$p_{\text{flood}}$ 越低，网络中并非所有节点都能被到达的
+可能性越大——原因很简单，某节点 Q 的所有邻居可能都决定不把 $m$ 转发给 Q；
+若 Q 有 $n$ 个邻居，这大约以概率 $(1-p_{\text{flood}})^n$ 发生。显然邻居数在决定是否转发消息时很重要，
+确实可把静态的转发概率换成考虑邻居度数的概率（Sereno 与 Gaeta 2011 进一步发展与分析）。
+给个效率印象：在 10,000 节点、$p_{\text{edge}}=0.1$ 的随机网络中，只需令
+$p_{\text{flood}}=0.01$ 就能相对完全泛洪取得 50 倍以上的消息量削减。
+
+\medskip\noindent 面对\textbf{结构化覆盖网络}（拓扑大体确定）时，设计高效泛洪方案更简单。
+以 $n$ 维\textbf{超立方体}为例（图 4.33 为 $n=4$；亦见 §2.4.1）。Schlosser 等（2002）设计了
+一个简单高效的广播方案，其依据是\textbf{按维度跟踪邻居}：可把 $n$ 维超立方体中每个节点表示为
+长度 $n$ 的比特串，每条边按其维度标记。$n=4$ 时，节点 0000 的邻居为
+$\{0001,0010,0100,1000\}$；边 $\langle 0000,0001\rangle$ 标为“4”（比较 0000 与 0001 时改变第 4 位），
+边 $\langle 0000,0100\rangle$ 标为“2”，依此类推。节点最初把消息 $m$ 广播给所有邻居，
+并给 $m$ 打上“发送该消息所经边”的标签。若节点 1001 广播，它会发送：
+$(m,1)$ 给 0001、$(m,2)$ 给 1101、$(m,3)$ 给 1011、$(m,4)$ 给 1000。当节点收到广播消息时，
+\textbf{只沿维度更高的边转发}：如节点 1101 只把 $m$ 转发给 1111（与 1101 由标“3”的边相连）
+与 1100（由标“4”的边相连）。用此方案可证明每次广播恰需 $N-1$ 条消息（$N=2^n$ 为 $n$ 维超立方体
+的节点数），因而\textbf{在发送消息数意义下最优}。
+
+\begin{closeread}
+\pair{In this case, each node simply forwards a message m to each of its neighbors, except to the one from which it received m.}{在这种情况下，每个节点只是把消息 m 转发给它的每个邻居，除了它从中收到 m 的那个邻居。}
+\pair{The idea is simple: when a node is flooding a message m and needs to forward m to a specific neighbor, it will do so with a probability pflood.}{想法很简单：当一个节点在泛洪消息 m、需要把 m 转发给某个特定邻居时，它会以概率 pflood 转发。}
+\end{closeread}
+
+\origin{§4.4.2，原书 p.236–240（图 4.32 随机覆盖网络的规模、图 4.33 四维超立方体、图 4.34 Chord 环中的广播）}
+
+\subsection*{4.4.3 基于 gossip 的数据传播（Gossip-based data dissemination）}
+一种重要的信息传播技术是依赖\textbf{流行病（epidemic）行为}，也称 \textbf{gossiping}。
+研究者观察疾病如何在人群中传播，早就探讨能否用简单技术在超大规模分布式系统中传播信息。
+这些\textbf{流行病协议}的主要目标是\textbf{仅用局部信息}就在大量节点间迅速传播信息——
+换言之，没有中心组件来协调信息传播。为说明这些算法的一般原理，假定对某个数据项的所有更新都
+在\textbf{单一节点}发起，从而简单避开写-写冲突（以下基于 Demers 等 1987 关于流行病算法的经典论文；
+综述见 Eugster 等 2004）。
+
+\medskip\noindent\textbf{信息传播模型}：顾名思义，流行病算法基于研究传染病传播的流行病理论。
+在大规模分布式系统中，它们传播的是信息而非疾病；针对分布式系统的流行病研究还有完全不同的目标：
+卫生组织竭力阻止传染病在大群体中扩散，而分布式系统流行病算法的设计者则要尽快“感染”所有节点。
+借用流行病术语：持有数据并愿意传播的节点称\textbf{感染（infected）}；尚未见过该数据的称
+\textbf{易感（susceptible）}；已被更新但不愿或不能传播数据的称\textbf{移除（removed）}
+（假定能区分新旧数据，如打了时间戳或版本号；此语境下节点也称传播\textbf{更新（updates）}）。
+一种流行的传播模型是 \textbf{anti-entropy}：节点 P 随机选另一节点 Q 并与 Q 交换更新，交换方式有三种：
+(1) P 只从 Q \textbf{拉取（pull）}新更新；(2) P 只把自己的更新\textbf{推（push）}给 Q；
+(3) P 与 Q 互相发送更新（即 \textbf{push-pull}）。就快速传播而言，\textbf{只推}是糟糕选择：
+纯推方式下更新只能由已感染节点传播，而当很多节点已感染时，每个节点选中易感节点的概率很小，
+故某节点可能因没有被感染节点选中而长期保持易感。相反，\textbf{拉}方式在多数节点已感染时表现好得多：
+此时传播本质上由易感节点触发，它很可能联系到一个已感染节点、拉取更新从而也被感染。
+若只有单个节点感染，两种 anti-entropy 都能让更新迅速扩散到所有节点，但 push-pull 仍是最佳策略
+（Jelasity 等 2007）。定义\textbf{一轮（round）}为一个时期、期间每个节点都会主动一次与随机选中的
+另一节点交换更新；则可证明把单个更新传给所有节点所需轮数为 $O(\log N)$ 量级（$N$ 为节点数）——
+这确实表明传播更新很快，更重要的是\textbf{可扩展}。
+
+\medskip\noindent 流行病协议的一个具体变体叫 \textbf{rumor spreading}（谣言传播）：若节点 P 刚被
+某数据项 $x$ 更新，它就联系任意的另一节点 Q、尝试把更新推给 Q；但 Q 可能已被另一节点更新过，
+此时 P 可能就此失去继续传播的兴趣（比如以概率 $p_{\text{stop}}$ 停止），换言之它变成了已移除。
+谣言传播就是我们日常生活中最常经历的 gossip：Bob 有劲爆消息，打电话告诉朋友 Alice；
+Alice 像 Bob 一样热衷把谣言传给她的朋友；可当她打给朋友 Chuck，却听说消息已传到他那里时，
+她很可能会就此不再给其他朋友打电话——反正他们都知道了，还有什么用？谣言传播是迅速散布消息的
+绝佳方式，但\textbf{不能保证所有节点都被更新}（Demers 等 1987）：当参与流行的节点很多时，
+仍不知道某更新的节点比例（即仍易感者的比例）$s$ 满足 $s=e^{-(1/p_{\text{stop}}+1)(1-s)}$。
+为有个直观印象（图 4.36）：即便 $p_{\text{stop}}$ 很高，仍不知情的节点比例也相对低、
+总不超过约 0.2；当 $p_{\text{stop}}=0.20$ 时可证明 $s=0.0025$。但在 $p_{\text{stop}}$ 较高时，
+仍须采取额外措施以确保所有节点都被更新。
+
+\medskip\noindent 流行病算法的一大优点是\textbf{可扩展}：与其他传播方法相比，进程间同步次数相对少。
+对广域系统，Lin 与 Marzullo（1999）表明考虑实际网络拓扑可获得更好结果：此时\textbf{只与少数节点相连
+的节点以相对高的概率被联系}，其潜在假设是这类节点构成通往网络其他远程部分的\textbf{桥}，
+因而应尽快联系它们；此法称\textbf{定向 gossip（directional gossiping）}，有不同变体。
+这触及多数流行病方案的一个重要假设：节点能\textbf{随机选择任意其他节点} gossip，
+这意味着原则上每个成员都应知道全部节点集合。在大系统中这一假设永远不成立，
+须采取特殊措施来模拟这种性质（§5.5.2 讨论 peer-sampling service 时再谈）。
+
+\medskip\noindent\textbf{删除数据}：流行病算法传播更新极佳，却有个奇怪的副作用——
+\textbf{传播数据项的删除很难}。问题本质在于删除数据项会摧毁关于该项的一切信息：
+当数据项被某节点简单移除后，该节点最终会收到该数据的旧副本，并把它们当作“自己此前没有的
+新东西”的更新来理解。技巧是\textbf{把数据项的删除记录成又一次更新、并保留该删除记录}；
+这样旧副本就不会被当成新东西，而只被当作“已被一次删除操作更新过的版本”。
+删除的记录通过传播 \textbf{death certificate（死亡证书）} 完成。当然，death certificate 的问题是
+最终须被清理，否则每个节点会逐渐攒出一个巨大的历史信息本地库、其中是已删除数据项的记录、别无他用。
+Demers 等（1987）提出使用 \textbf{dormant death certificate（休眠死亡证书）}：
+每份 death certificate 创建时打时间戳；若可假定更新在已知有限时间内传播到所有节点，
+则超过该最大传播时间后即可移除 death certificate。但若要为“删除确实传播到了所有节点”提供硬保证，
+只有极少数节点保留永不丢弃的 dormant death certificate：设节点 P 持有数据项 $x$ 的这样一份证书，
+若某个针对 $x$ 的过时更新碰巧到达 P，P 只需再次传播 $x$ 的 death certificate 即可。
+
+\begin{closeread}
+\pair{The main goal of these epidemic protocols is to rapidly propagate information among a large collection of nodes using only local information.}{这些流行病协议的主要目标，是仅利用局部信息，就在大量节点之间迅速传播信息。}
+\pair{The trick is to record the deletion of a data item as just another update, and keep a record of that deletion.}{窍门在于把数据项的删除记录为又一次更新，并保留该删除的记录。}
+\pair{One specific variant of epidemic protocols is called rumor spreading.}{流行病协议的一个具体变体叫做谣言传播（rumor spreading）。}
+\end{closeread}
+
+\origin{§4.4.3，原书 p.240–244（图 4.35 anti-entropy 未更新节点数随轮数变化、图 4.36 未更新比例 $s$ 与 $p_{\text{stop}}$ 的关系）}
+
+\sechead{4.5 Summary}{小结}
+
+\begin{itemize}
+  \item 进程间通信是分布式系统的核心；中间件的重要任务是在传输层接口之上提供更高的抽象层次，
+        让进程间通信更易表达。
+  \item \textbf{RPC} 是最广泛使用的抽象之一：服务由过程实现、过程体在服务器执行，客户端只拿到
+        过程的签名；调用时 client stub 把参数值打包成消息发出，server stub 调用实际过程并回送结果。
+  \item RPC 提供\textbf{同步}通信（客户端阻塞到收到应答），虽有各种放松严格同步的变体，
+        但通用、高层的\textbf{面向消息}模型往往更方便。
+  \item 面向消息模型的要点是通信\textbf{是否持久}、是否\textbf{同步}：持久通信中消息由通信系统
+        存到送达为止，收发双方都不必在线；瞬态通信则不提供存储，接收方须在消息发出时准备好接收。
+  \item 消息队列中间件一般提供\textbf{持久异步}通信，常用于把（广泛分布的）数据库集合集成为大规模
+        信息系统。
+  \item \textbf{组播}是把信息从单一发送者传播给多个接收者：既可通过建树（如今也可用 P2P 自组织
+        去中心化动态建树）实现；泛洪极其健壮但要小心资源浪费（概率泛洪兼顾简单与高效）；
+        以及流行病/gossip 协议，简单且极其健壮。
+\end{itemize}
+
+\begin{closeread}
+\pair{RPCs offer synchronous communication facilities, by which a client is blocked until the server has sent a reply.}{RPC 提供同步通信设施，客户端会被阻塞，直到服务器发回应答。}
+\pair{The essence of persistent communication is that a message that is submitted for transmission, is stored by the communication system as long as it takes to deliver it.}{持久通信的本质是：已提交待传的消息会由通信系统一直存储，直到将其投递为止。}
+\end{closeread}
+
+\origin{§4.5，原书 p.245–246}
+
+\begin{actions}
+  \item 读原书第 4 章，重点看图 4.1（OSI 分层）、图 4.4（中间件作为中介服务）、图 4.6（RPC 原理）、
+        图 4.18（socket 面向连接模式）、图 4.28（message broker）、图 4.31（覆盖与物理路由）、
+        图 4.36（rumor spreading 的 $s$）。
+  \item 用 Python 手写一对 socket 客户端/服务器（图 4.19），再用 pickle 加编组（图 4.9），
+        体会 RPC 两步与字节序问题。
+  \item 用 ZeroMQ 分别实现 REP/REQ 与 PUB/SUB 两个小程序，验证“异步 + 面向连接”使客户端可先于
+        服务器启动、且未订阅的消息收不到。
+  \item 给一个小型消息队列选型（RabbitMQ / Kafka / ActiveMQ），画出 producer → exchange →
+        queue → consumer 的路径，并说明哪些消息需要 durable。
+  \item 对比 RPC 与 MOM：把你的一个真实业务场景分别按两者建模，指出何时必须用持久异步。
+  \item 在 5–10 个节点的模拟覆盖网络上实现泛洪与概率泛洪，统计消息数随 $p_{\text{flood}}$ 的变化；
+        再实现 anti-entropy 的 push、pull、push-pull，对比传播到全体所需轮数。
+\end{actions}

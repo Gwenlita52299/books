@@ -1,0 +1,405 @@
+% ============================================================
+%  第 6 章 Naming 导读
+% ============================================================
+\chapter{Naming}
+\begin{center}
+\begin{minipage}{0.9\textwidth}
+\itshape\small\color{dsgray}
+名字用于引用实体、唯一标识、指向位置等，而\textbf{名字解析}让进程能访问被命名的实体。
+分布式命名系统的实现本身往往跨多机分布，分布方式决定其效率与可扩展性。本章按三类名字展开：
+\textbf{flat naming}（无结构标识符，靠 DHT、分层定位服务等追踪位置）、
+\textbf{structured naming}（人类可读的结构化名字，如 DNS，系统性地逐级解析）、
+\textbf{attribute-based naming}（用属性描述实体，本质是搜索，尤其困难）；
+最后讨论\textbf{named-data networking}——直接用名字路由取数据，挑战“名字先解析成地址”的必要性。
+\end{minipage}
+\end{center}
+
+\sechead{6.1 Names, identifiers, and addresses}{名字、标识符与地址}
+
+分布式系统中的\textbf{名字}是用于引用实体的位串或字符串，实体可以是主机、打印机、磁盘、
+文件，也可以是进程、用户、邮箱、网页、消息、网络连接等。要操作实体需先访问它，
+这需要一个\textbf{访问点（access point）}；访问点的名字叫\textbf{地址（address）}。
+一个实体可有多个访问点（如一个人有多部电话），且访问点会随时间变化（如移动主机换了 IP）。
+因此地址只是特殊类型的名字：它指向实体的某个访问点。
+
+用地址直接引用实体很不灵活：服务器换主机、访问点被重新分配给别的实体时引用会立刻失效；
+实体有多个访问点也难选。于是更好的是\textbf{与位置无关（location independent）}的名字，
+独立于访问点地址。另一类需要特殊处理的是\textbf{标识符（identifier）}，
+真标识符有三条性质：（1）一个标识符至多指向一个实体；（2）每个实体至多被一个标识符引用；
+（3）标识符始终指向同一实体（永不复用）。有了标识符，比较两个标识符是否相等即可判断
+是否指向同一实体（“John Smith”就不行）。电话号会重分配，故也不能当标识符。
+此外还有面向人的 \textbf{human-friendly name}（通常为字符串，如 Unix 文件名、DNS 名）。
+
+本章核心问题：如何把名字/标识符\textbf{解析}成地址？有两条思路：一是维护
+（通常分布式的）(name, address) 表，如 DNS；二是通过\textbf{路由}把请求逐步送到名字关联的
+地址甚至直接到访问点，如结构化 P2P 与信息中心网络（ICN）。后一情形下，
+名字解析与消息路由的边界开始模糊。
+
+\begin{closeread}
+\pair{A name in a distributed system is a string of bits or characters that is used to refer to an entity.}{分布式系统中的名字是用于引用某个实体的位串或字符串。}
+\pair{The name of an access point is called an address.}{访问点的名字被称为地址。}
+\pair{An identifier always refers to the same entity (i.e., it is never reused).}{一个标识符始终指向同一个实体（即永不复用）。}
+\pair{Such a name is called location independent.}{这样的名字被称为与位置无关的。}
+\end{closeread}
+
+\origin{§6.1，原书 p.326–329}
+
+\sechead{6.2 Flat naming}{扁平命名}
+
+\textbf{flat name}（无结构名字）通常是随机位串，其重要性质是\textbf{不包含任何}关于如何定位
+其关联实体访问点的信息。问题便是：仅给定标识符，如何定位实体？
+
+\subsection*{6.2.1 简单方案（Simple solutions）}
+\textbf{广播}：向每台机器广播含标识符的消息，能提供访问点者回送其地址。
+ARP 即用此法由 IP 地址找数据链路地址。网络变大后广播低效（浪费带宽、打扰太多主机），
+可改用\textbf{多播}只让受限的一组主机收到请求，也可用多播地址做通用定位服务或定位最近副本。
+\textbf{转发指针}：实体从 A 移到 B 时在 A 留下指向 B 的引用；优点是简单，
+缺点是高度移动实体的指针链可能过长、所有中间位置都须维护链、且任一指针丢失即失联，
+故须保持链短且指针健壮。
+
+\subsection*{6.2.2 基于家的方案（Home-based approaches）}
+为移动实体引入 \textbf{home location} 跟踪其当前位置（常选实体的创建地）。
+\textbf{Mobile IP} 即用此法：移动主机用固定 IP，所有通信先送到其 \textbf{home agent}；
+主机移动到新网络时申请临时地址（\textbf{care-of address}）并注册到 home agent。
+home agent 收到分组后查当前位置：在本网则直接转发，否则\textbf{隧道}到当前位置
+（包在 IP 包里作为数据发送），同时告知发送方新位置；原 IP 地址实际被当作标识符使用。
+该机制对应用基本透明，实现了高度的位置透明。缺点是客户端须先联系可能相距很远的 home，
+增加延迟；且 home 固定，必须始终存在，长期移动实体的 home 最好能随之移动
+（可把 home 注册到传统命名服务中，因 home 相对稳定而可有效缓存）。
+
+\subsection*{6.2.3 分布式哈希表（Distributed hash tables）}
+以 Chord 为代表：用 $m$ 位标识符空间（通常 128 或 160 位）给节点和键随机赋标识符，
+键 $k$ 归\textbf{标识符 $\ge k$ 的最小节点}管辖，记作 $succ(k)$。核心问题是高效地把 $k$
+解析到 $succ(k)$ 的地址。朴素做法（只记录后继）平均要走半个环，不可扩展。
+Chord 每个节点维护 \textbf{finger table} $FT_p[i] = succ(p + 2^{i-1})$，
+即第 $i$ 项指向至少比 $p$ 大 $2^{i-1}$ 的第一个节点；查找时把请求转发到满足
+$q = FT_p[j] \le k < FT_p[j+1]$ 的节点 $q$，故一般只需 $O(\log N)$ 步。
+加入系统只需联系任一节点查出 $succ(p+1)$ 再插入环；难点在维护 finger table，
+尤其 $FT_q[1]$（后继）必须正确，各节点定期联系 $succ(q+1)$ 并请求其前驱来校正，
+finger table 的其余项也定期在后台刷新；前驱失效则标记为 “unknown”。
+
+\medskip\noindent \textbf{利用网络邻近性}：Chord 的请求可能绕远路（如逻辑相邻的节点
+实际分处阿姆斯特丹与圣地亚哥）。Castro 等区分三种做法：\textbf{topology-based assignment}
+（让标识符邻近对应节点邻近，但在 Chord 这类一维空间中很难，且易暴露相关失效）、
+\textbf{proximity routing}（每个表项维护 $r$ 个候选，转发时在不“越过”目标的前提下选离自己最近的）、
+\textbf{proximity neighbor selection}（优化路由表使最近节点被选为邻居，需有多个候选可选，
+如 Pastry）。
+
+\begin{closeread}
+\pair{An important property of such a name is that it does not contain any information whatsoever on how to locate the access point of its associated entity.}{这类名字的一个重要性质是：它完全不含任何关于如何定位其关联实体访问点的信息。}
+\pair{The main issue in DHT-based systems is to efficiently resolve a key k to the address of succ(k).}{DHT 类系统的核心问题是：如何高效地把键 k 解析为 succ(k) 的地址。}
+\pair{It should come as no surprise that a lookup will generally require O(log(N)) steps, with N being the number of nodes in the system.}{不出所料，一次查找通常需要 $O(\log N)$ 步，其中 $N$ 是系统中节点的数量。}
+\end{closeread}
+
+\subsection*{6.2.4 分层方案（Hierarchical approaches）}
+以 Globe location service 为代表：网络划分为若干\textbf{域（domain）}，顶层域覆盖全网，
+域可再分为子域，最底层是 \textbf{leaf domain}（通常对应一个局域网或移动蜂窝）。
+每个域 $D$ 有目录节点 $dir(D)$ 记录该域中的实体，形成目录节点树；
+顶层域的 \textbf{root} 节点知道所有实体。实体在 leaf 域中的位置记录含其当前地址，
+而上层域的记录只含指向下级目录节点的\textbf{指针}；实体有多个地址（如被复制）时，
+包含这些地址的最小域会有多个指针。查找时从客户端所在 leaf 的目录节点开始，
+无记录则逐级上送，直到某节点有记录，再沿指针逐级向下到 leaf，取回地址——
+本质上是在以客户端为中心、逐渐扩大的“环”中搜索，利用\textbf{局部性}。
+插入（新增地址）同理自下而上推进，直到遇到已有记录的节点，再自上而下建指针链；
+删除则反向清理空记录。Note 6.2 说明逻辑设计（根需知道所有标识符）与物理实现的区别：
+可把逻辑目录节点分散到多台物理主机上，兼顾地理可扩展性与规模可扩展性。
+
+\subsection*{6.2.5 安全的扁平命名（Secure flat naming）}
+flat name 不含解析信息，故完全依赖解析过程。若解析过程不可信，响应也不可信。
+两条路：\textbf{保障解析过程}，或\textbf{保障标识符与实体的绑定}。
+后者即 \textbf{self-certifying name}：由实体数据算标识符
+$id(entity) = hash(\text{与实体关联的数据})$，客户端自行校验收到的数据；
+对可修改实体（如移动对象，实体即当前地址）可用 $id(entity) = public\ key(entity)$，
+返回数据附签名摘要等供验证。这样一来，解析过程返回假数据或无数据是最坏结果，
+但返回什么客户端都能验证，信任被降级为“提供体面的服务”。保障解析过程更复杂，
+对 Mobile IP、分层定位服务需保证返回的（中间）答案合理；DHT 系统的安全较麻烦，
+主要面对 \textbf{Sybil} 与 \textbf{eclipse} 攻击，根本在于保证节点标识符是真实的
+（属于唯一拥有者且可验证），实践中往往需要集中式机构发放标识符。
+
+\begin{closeread}
+\pair{Flat names do not contain any information on how to resolve a name to the entity it is referring to.}{扁平名字不含任何关于如何把名字解析到其所指实体的信息。}
+\pair{By securing the identifier-to-entity binding, it becomes less important to trust the name-resolution process.}{通过保障标识符与实体之间的绑定，信任名字解析过程就变得不那么重要了。}
+\end{closeread}
+
+\origin{§6.2，原书 p.329–344（图 6.1 Mobile IP、图 6.2 Chord 查找、图 6.3 查找路径长度、图 6.5--6.9 分层定位服务）}
+
+\sechead{6.3 Structured naming}{结构化命名}
+
+flat name 适合机器，却不宜人用。命名系统通常支持由简单、人类可读的名字组成的
+\textbf{structured name}（文件命名与 Internet 主机命名皆然）。
+
+\subsection*{6.3.1 名字空间（Name spaces）}
+结构化名字组织成 \textbf{name space}，可表示为带两类节点的有向图：
+\textbf{leaf node} 代表被命名实体、无出边，通常存实体的信息（如地址）或状态；
+\textbf{directory node} 有若干带标签的出边，存 (节点标识符, 边标签) 的
+\textbf{directory table}。只有一个节点只有出边、无入边者称 \textbf{root}。
+路径上的标签序列 $N:[label_1,\dots,label_n]$ 叫 \textbf{path name}，
+起点为根则称\textbf{绝对}路径名，否则为\textbf{相对}路径名。文件系统中常写成用 “/”
+分隔的字符串（如 \texttt{/home/steen/mbox}），Plan 9 更把所有资源都用文件方式命名。
+名字空间多为单根、严格层次（树，每节点恰一入边），也有有向无环图（可多入边、无环）。
+需注意名字总是相对某个目录节点定义，故“绝对名字”一词略有误导；
+\textbf{global name} 处处指向同一实体，\textbf{local name} 的解释依赖使用位置。
+
+\subsection*{6.3.2 名字解析（Name resolution）}
+解析形如 $N:[label_1,\dots,label_n]$ 的路径名，从节点 $N$ 开始，在 directory table 中
+查 $label_1$ 得到下一节点标识符，再在其中查 $label_2$，依此类推，直到返回末节点的内容。
+解析需要知道从何、如何开始，这称为 \textbf{closure mechanism}（如“00312059837784”
+须先知道是电话号码才能开始；环境变量 \texttt{HOME} 通过用户特定表解析）。
+\textbf{别名}有两种实现：多个绝对路径名指向同一节点（Unix 的 \textbf{hard link}），
+或 leaf 节点存一个绝对路径名（\textbf{symbolic link}）。\textbf{挂载（mounting）}
+用于透明合并不同名字空间：存有外部名字空间目录节点标识符的目录节点是 \textbf{mount point}，
+外部名字空间中的对应节点是 \textbf{mounting point}（通常是其根）。跨网络挂载至少需要
+三项信息：访问协议名、服务器名、外部名字空间中的挂载点名，且三者都要解析；
+例如 NFS URL \texttt{nfs://flits.cs.vu.nl/home/steen} 中，\texttt{nfs} 是众所周知的名字。
+
+\subsection*{6.3.3 名字空间的实现（The implementation of a name space）}
+命名服务由 \textbf{name server} 实现，大规模时须把名字空间分布到多台服务器。
+Cheriton \& Mann 将其分为三层：\textbf{global layer}（根及其近旁节点，很少变动，
+代表组织；高可用性尤为关键）、\textbf{administrational layer}（同一组织内管理的目录节点，
+相对稳定）、\textbf{managerial layer}（常变动的节点，如本地主机、共享文件、用户目录，
+由终端用户维护）。DNS 中把不重叠的部分称为 \textbf{zone}，由独立 name server 实现。
+各层对可用性与性能要求不同：global 层靠复制 + 客户端缓存，更新可延迟生效；
+administrational 层须在几毫秒内响应且更新较快；managerial 层可用单机但须即时响应、
+缓存效果差。图 6.15 给出对比。
+
+\medskip\noindent 名字解析的实现有\textbf{迭代式}与\textbf{递归式}两种。
+迭代式：客户端 resolver 把完整名字交给根服务器，根能解析多少就返回多少及下一台服务器地址，
+客户端再逐级联系（如解析 \texttt{root:[nl,vu,cs,ftp]}）。
+递归式：服务器把结果传给下一台服务器，逐层向下直到取回结果再回传；
+缺点是每个 name server 负担更重（故 global 层通常只支持迭代式），
+优点是\textbf{缓存更有效}且\textbf{通信开销更小}（递归式下客户端只需与其本地服务器交互，
+其余在服务器间进行；迭代式则客户端要分别联系多台服务器，成本可能约为三倍）。
+
+\subsection*{6.3.4 例：域名系统（The Domain Name System）}
+DNS 是当今最大的分布式命名服务之一，主要用于查主机与邮件服务器的 IP 地址。
+其名字空间是\textbf{有根树}，label 是不区分大小写的字母数字串（最长 63 字符，
+完整路径名最长 255 字符），字符串表示从最右 label 开始、用 “.” 分隔，根用 “.” 表示
+（如 \texttt{flits.cs.vu.nl.}）。子树称 \textbf{domain}，到其根节点的路径名称 \textbf{domain name}。
+节点内容由一组 \textbf{resource record} 组成，主要类型：SOA、A（主机 IP）、
+MX（邮件服务器）、SRV（特定服务的服务器）、NS（区域的 name server）、
+CNAME（符号链接）、PTR（反向映射）、HINFO、TXT。DNS 区分别名与
+\textbf{canonical name}；反向映射用 \texttt{in-addr.arpa} 域（如
+\texttt{20.20.37.130.in-addr.arpa}）。DNS 名字空间可看作 global 与 administrational 两层，
+managerial 层（本地文件系统）形式上不属于 DNS。每个 zone 由一台 name server 实现、
+几乎总是复制；更新由 \textbf{primary} 处理，\textbf{secondary} 通过 \textbf{zone transfer}
+获取内容。DNS 数据库是一小组文件，最重要的文件含某 zone 全部节点的 resource record。
+
+\medskip\noindent \textbf{现代 DNS} 有三点变化：许多组织使用\textbf{外部 resolver}
+（可能导致 CDN 依据 resolver 而非客户端地址做次优选择）、客户端/浏览器常\textbf{绕过}
+本地配置直接联系自选 resolver（更难观测，且若客户端到 resolver 的通信加密则更难）、
+越来越多组织不再自建 DNS 服务器而把解析外包给第三方（DNS 日益\textbf{集中化}）。
+安全方面：\textbf{DNSSEC} 由 zone 拥有者签名 resource record，同类型记录先分组再签名，
+公钥（zone-signing key）由 key-signing key 签名、其哈希由父域签名，形成直到根的
+\textbf{信任链}；因记录变大，需扩展机制支持超过 512 字节的 UDP 报文。
+隐私方面：\textbf{DNS over TLS}（端口 853）与 \textbf{DNS over HTTPS} 防止第三方得知
+应用访问了哪些网站；还可只让服务器解析路径中\textbf{相关部分}（如只请求 \texttt{.nl}）
+以提升机密性。
+
+\begin{closeread}
+\pair{Flat names are good for machines, but are generally not very convenient for humans to use.}{扁平名字对机器友好，但通常不太方便人类使用。}
+\pair{The process of looking up a name is called name resolution.}{查找名字的过程被称为名字解析。}
+\pair{Knowing how and where to start name resolution is generally referred to as a closure mechanism.}{知道从何处、如何开始名字解析，通常被称为闭包机制（closure mechanism）。}
+\end{closeread}
+
+\begin{closeread}
+\pair{One of the largest distributed naming services in use today is the Internet Domain Name System (DNS).}{当今使用中最大的分布式命名服务之一，是 Internet 域名系统（DNS）。}
+\pair{The DNS name space is hierarchically organized as a rooted tree.}{DNS 名字空间以有根树的形式层次化组织。}
+\end{closeread}
+
+\begin{ideabox}[Note 6.8：去中心化还是分层实现？]
+DNS 采用层级服务器（13 个众所周知的根节点，末端有数百万台服务器），
+高层节点收到远多于低层的请求，只有靠缓存高层名字到地址的绑定才能避免被淹没。
+原则上可用全去中心化方案（对 DNS 名做哈希、在 DHT 或全分区根的分层定位服务中查找），
+但会丢失名字的结构（如无法高效找出某域的所有子节点）。Pappas 等（2006）指出
+当前分层设计其实不差，原因有二：其一，分层中各节点\textbf{并不平等}，高层节点被特别工程化
+（如 RIPE NCC 的根节点在约 25 个站点实现、用同一 IP，均为高健壮复制集群），
+而 DHT 把所有名字一视同仁、难以把顶级域分离出来；其二，DNS 缓存极有效且几乎完全由
+查询的本地分布驱动，而 DHT 的缓存与局部性关系很弱。结论：用去中心化实现取代 DNS
+未必是好主意。
+\end{ideabox}
+
+\subsection*{6.3.5 例：网络文件系统（The Network File System）}
+NFS 命名模型的根本思想是让客户端\textbf{完全透明}地访问服务器维护的远程文件系统，
+做法是把远程文件系统\textbf{挂载}到本地文件系统中。服务器\textbf{导出（export）}
+一个目录即让其条目对客户端可用；客户端可只挂载文件系统的一部分。
+该设计的一个重要后果是\textbf{用户不共享名字空间}：同一文件在客户端 A 叫
+\texttt{/remote/vu/mbox}、在 B 叫 \texttt{/work/me/mbox}，名字取决于本地组织与挂载点，
+故共享文件变难（Alice 无法用自己给文件起的名字告诉 Bob）。常见补救是给每个客户端
+提供\textbf{部分标准化}的名字空间（如 \texttt{/usr/bin}、\texttt{/local}）。
+NFS 服务器可挂载其他服务器导出的目录，但不允许再导出给自己的客户端，
+否则需返回含服务器标识的 file handle，而 NFS 不支持。
+
+\medskip\noindent \textbf{file handle} 是文件系统内对文件的引用，独立于文件名、
+由服务器创建、对其导出的所有文件系统唯一，且对客户端\textbf{完全不透明}
+（NFSv2 为 32 字节，v3 可变至 64，v4 至 128）。理想情况下它是文件相对于文件系统的
+\textbf{真标识符}：只要文件存在，handle 就不变（持久性），于是客户端可缓存 handle、
+避免每次操作都重新查名字，也能在文件改名后仍访问它；服务器删除文件后不得复用 handle，
+否则客户端可能误访问。早期 NFS 的解析严格\textbf{迭代}（一次查一个名字），
+客户端负责整个路径解析；且查找不能跨越挂载点，会返回原目录的 handle 而非挂载文件系统
+根目录的内容。NFSv4 支持递归查找并允许查找跨越服务器上的挂载点（返回被挂载目录的 handle，
+客户端可通过文件系统标识符检测到并本地挂载）。初始 handle 问题：NFSv3 用单独的 mount 协议，
+NFSv4 用 \texttt{putrootfh} 操作让服务器相对其文件系统根解析名字，因而无需单独 mount 协议。
+Note 6.9 介绍 \textbf{automounter}：按需挂载（用户登录时才挂载其 home），
+为提升性能，可把目录挂到特殊子目录并安装符号链接，使后续操作绕过 automounter。
+
+\begin{closeread}
+\pair{The fundamental idea underlying the NFS naming model is to provide clients complete transparent access to a remote file system as maintained by a server.}{NFS 命名模型的根本思想是：让客户端对服务器所维护的远程文件系统拥有完全透明的访问。}
+\pair{A file handle is a reference to a file within a file system. It is independent of the name of the file it refers to.}{file handle 是文件系统内对某个文件的引用，它独立于其所指文件的文件名。}
+\end{closeread}
+
+\origin{§6.3，原书 p.344–375（图 6.10 命名图、图 6.14 DNS 三层分区、图 6.16--6.17 迭代/递归解析、图 6.24 DNSSEC 信任链、图 6.25--6.27 NFS 挂载与 automounter）}
+
+\sechead{6.4 Attribute-based naming}{基于属性的命名}
+
+flat name 与 structured name 提供唯一、与位置无关的引用，且常假定名字只指一个实体。
+但信息增多后，\textbf{按描述搜索}实体变得重要，用户只需给出“在找什么”的描述。
+分布式系统中流行用 \textbf{(attribute, value)} 对描述实体，即 \textbf{attribute-based naming}：
+实体有一组属性，用户指定某些属性的取值即约束感兴趣集合，命名系统返回满足描述的实体。
+
+\subsection*{6.4.1 目录服务（Directory services）}
+基于属性的命名系统又称 \textbf{directory service}，支持结构化命名者一般叫 naming system。
+设计合适的属性集并不简单（多为手工），即使属性集达成共识，不同人给值的一致性也是难题。
+为统一资源描述方式，出现了 \textbf{Resource Description Framework（RDF）}：
+资源用 (subject, predicate, object) 三元组描述（如 \texttt{(Person, name, Alice)}），
+三者本身都可为资源，引用本质是 URL。属性描述的存储若与资源不同处，会有严重性能问题：
+与结构化命名不同，基于属性的查找本质上需要\textbf{穷举搜索}所有描述符（可用索引等技术缓解），
+在单一非分布式数据仓库中尚可，但把搜索查询发给成百上千台服务器则通常不明智。
+
+\subsection*{6.4.2 分层实现：LDAP（Hierarchical implementations: LDAP）}
+常见做法是把结构化命名与基于属性的命名结合，如 Microsoft Active Directory，
+多依赖 \textbf{LDAP}（源自 OSI 的 X.500）。概念上 LDAP 目录服务由若干
+\textbf{directory entry} 组成，每条是 (attribute, value) 对集合，属性有类型，
+分单值与多值。标准命名属性（C、L、O、OU、CN）可组成全局唯一名，
+如 \texttt{/C=NL/O=VU University/OU=Computer Science}，类比 DNS 的 \texttt{nl.vu.cs}。
+每个命名属性叫 \textbf{relative distinguished name（RDN）}，RDN 依序组合成层次化的
+\textbf{directory information tree（DIT）}（即 LDAP 的命名图，节点可同时充当目录与记录）。
+全部条目的集合称 \textbf{directory information base（DIB）}。两个查找操作：
+\texttt{read} 按 DIT 路径名读单条记录，\texttt{list} 列出某节点的所有子节点名（不含记录）。
+实现方式类似 DNS：DIT 分区后分布到 \textbf{directory service agent（DSA）}，
+客户端用 \textbf{directory user agent（DUA）} 按标准协议交互。与 DNS 不同的是
+\textbf{搜索}能力：可按条件搜索条目，如
+\texttt{search("(C=NL)(O=VU University)(OU=*)(CN=Main server)")}。
+搜索通常昂贵：往往要访问多个 leaf 节点乃至多个 DSA，而命名服务的查找常只需一个 leaf。
+Active Directory 更进一步允许若干树并存互链（\textbf{forest}），
+常假设有一个可先搜索的全局索引服务器（\textbf{global catalog}）以缓解可扩展性问题；
+LDAP 也常与 DNS 结合（树根常以 DNS 名表示，并通过 SRV 记录找到）。
+
+\subsection*{6.4.3 去中心化实现（Decentralized implementations）}
+P2P 兴起后，研究者也探索去中心化的基于属性的命名。用\textbf{分布式索引}：
+若有 $d$ 个属性，就为每个属性设一台服务器，保存该属性的 $(E, val)$ 对；
+查询发给相关属性的服务器，客户端再求交集。缺点是：涉及 $k$ 个属性的查询要联系 $k$ 台
+索引服务器（通信开销大）；客户端要处理返回的集合（如查 “Pheriby Smith”，
+\texttt{lastName = Smith} 的键可能有上百万）；且不易支持范围查询（如价格区间）。
+另一种常见方法是 \textbf{space-filling curves}：把 $N$ 个属性张成的 $N$ 维空间映射到一维，
+再用哈希分布到索引服务器，关键是让“接近”的 (attribute, value) 对落到同一服务器。
+以 \textbf{Hilbert 曲线}为例：递归地把正方形分成四个子方块并用一条线连接，
+经旋转与反射使其与相邻大方块中的线良好衔接；order $k$ 的曲线连接 $2^{2k}$ 个子方块、
+有 $2^{2k}$ 个索引。space-filling curve 的重要性质是\textbf{保持局部性}：
+曲线上相近的索引对应多维空间中相近的点（反之不必然）。搜索时给定各属性的区间，
+即划定一个矩形区域，曲线与该区域相交的段所索引的文件即匹配；
+还需一个“给定区域返回一串曲线索引”的操作（依赖所用曲线，但不依赖具体实体）。
+Squid 系统用 Chord 环存放索引（索引空间与环相同），负责索引 $i$ 的 Chord 节点
+保存被 $i$ 索引的实体。Note 6.10 介绍 SWORD：把 (attribute, value) 对转成 DHT 的 key
+（属性名与值分占不同位，另加随机位保证唯一），按属性名分区、按值区间再分；
+优点是范围查询易支持，缺点是更新要发往多台服务器、负载均衡不明。
+
+\begin{closeread}
+\pair{There are many ways in which descriptions can be provided, but a popular one in distributed systems is to describe an entity in terms of (attribute, value) pairs, generally referred to as attribute-based naming.}{描述的方式有很多，但在分布式系统中流行的一种，是用 (属性, 值) 对来描述实体，通常称为基于属性的命名。}
+\pair{Unlike structured naming systems, looking up values in an attribute-based naming system essentially requires an exhaustive search through all descriptors.}{与结构化命名系统不同，在基于属性的命名系统中查找值，本质上需要对所有描述符进行穷举搜索。}
+\pair{A common approach to implementing decentralized attribute-based naming systems is to use what are known as space-filling curves.}{实现去中心化基于属性命名系统的一种常见方法，是使用所谓的空间填充曲线。}
+\end{closeread}
+
+\begin{commentary}
+基于属性的命名是本章最“难啃”的部分，因为它把命名问题转成了\textbf{分布式搜索}问题。
+记住两条主线：一是\textbf{分布式索引}（每个属性一台服务器、客户端求交集，简单但不支持
+范围查询且通信开销大），二是\textbf{空间填充曲线}（把多维降到一维并保持局部性，
+从而支持范围查询，Squid 把它与 Chord 环结合）。共同的核心矛盾始终是：
+如何把属性/子空间分配给服务器，使客户端知道该问谁，同时保持负载均衡。
+\end{commentary}
+
+\origin{§6.4，原书 p.375–385（图 6.29 LDAP 条目、图 6.30 DIT、图 6.31 Hilbert 曲线）}
+
+\sechead{6.5 Named-data networking}{命名数据网络}
+
+前文区分了名字、标识符与地址，并主张名字须先解析成地址才能访问实体。唯一一次例外是
+用 Chord 等 DHT 的标识符直接路由查找请求。本节挑战“名字到地址解析”的必要性，
+聚焦 \textbf{Information-centric networking（ICN）}中最流行的形式
+\textbf{named-data networking（NDN）}。
+
+\subsection*{6.5.1 基础（Basics）}
+NDN 的原则是：应用其实不关心实体\textbf{存在哪里}，只求需要时能拿到一份副本在本地访问。
+自约 2007 年起，研究致力于设计替代当今 Internet 主机寻址的方案：应用用实体的\textbf{名字}
+从网络取回实体，网络以该名字为输入，把请求路由到存放该实体的合适位置并返回副本。
+效果上 NDN 在未来的 Internet 架构中取代 IP 的角色。重要后果是：不再先解析名字成地址、
+再向该地址路由，而是\textbf{直接用名字取数据}——这与 DHT 中基于键直接路由查找请求同理。
+NDN 假设名字是\textbf{结构化}的，如
+\texttt{/distributed-systems.net/books/Distributed Systems/4/01/Naming}。
+它假定数据\textbf{不经改名不得修改}，否则路由器的缓存效果会大打折扣；用户若知道可能有更新，
+可请求最新版本，NDN 还提供单独的\textbf{同步协议}让数据拥有者向感兴趣方通告更新。
+
+\subsection*{6.5.2 路由（Routing）}
+看似任意的结构化名字未必比 IP 更难路由：要按 IPv4 地址 \texttt{145.100.190.243}
+找访问点，同样需要某种全局路由机制。Zhang 等（2019）认为两者本质无异，
+关键在于决定名字或地址的\textbf{哪一部分（前缀）}要在全局路由设施中通告，
+正如 IPv4 用 BGP 路由器所做。例如可把 \texttt{/distributed-systems.net} 作为全局前缀，
+在 BGP 层把请求路由到负责该前缀的组织网络，网络内再用名字的其余部分查找内容。
+\textbf{NDN router} 由三要素构成：（1）\textbf{content store}——缓存已查名字的数据，
+命中即直接返回；（2）\textbf{pending interest table}——记录 (name, interface) 对，
+以便数据到达时按接口回送，若无（已无）兴趣则可丢弃数据；（3）\textbf{forwarding information base}——
+无法服务请求时的处置（泛洪到邻居、随机游走或丢弃）。这些决策本质上与 IPv4/IPv6 路由无异。
+请求返回时，路由器查是否有 pending 请求、按接口回送并清除条目，也可能把内容存入 content store
+以备将来。该设计为缓存内容、淘汰策略、转发对象等带来许多优化空间。
+
+\subsection*{6.5.3 NDN 中的安全（Security in named-data networking）}
+除\textbf{安全命名}外，name server 与路由器本身也需保护（威胁多是试图中断服务）。
+安全命名的核心是确保提供的名字与所指内容\textbf{不可伪造地}绑定。
+最简单做法是把内容的\textbf{签名摘要}包含进名字，类似 self-certifying name：
+只要接收方另有信息（所用哈希函数、公钥及其证书等），就能验证返回内容确实与名字关联。
+
+\begin{closeread}
+\pair{Named-data networking revolves around the principle that applications are not really interested to know where an entity is stored, but rather that they can get a copy to access it locally when needed.}{命名数据网络围绕这样一个原则：应用并不真的关心实体存储在哪里，而只关心在需要时能拿到一份副本供本地访问。}
+\pair{An important consequence of this organization is that instead of first resolving a name to an address, and then routing a request toward that address, the name of an entity is directly used to fetch the associated data.}{这种组织方式的一个重要后果是：不再先把名字解析成地址、再向该地址路由请求，而是直接用实体的名字来取回关联数据。}
+\pair{Secure naming is all about ensuring that the provided name is unforgeably linked to the content it refers to.}{安全命名的核心，是确保所提供的名字与其所指的内容之间具有不可伪造的绑定。}
+\end{closeread}
+
+\origin{§6.5，原书 p.385–389（图 6.32 NDN 与 IP 的“沙漏”对比、图 6.33 NDN 路由器三要素）}
+
+\sechead{6.6 Summary}{小结}
+
+\begin{itemize}
+  \item 名字用于引用实体，本质上分三类：\textbf{address}（实体某访问点的名字）、
+        \textbf{identifier}（每实体恰一个、只指一个实体、永不复用）、
+        \textbf{human-friendly name}（面向人、字符串）。据此区分 flat、structured、
+        attribute-based 三类命名。
+  \item \textbf{flat naming} 要把标识符解析成实体地址，定位方式有：广播/多播；
+        转发指针（须定期缩短指针链）；home（实体移动时通知 home，先问 home 再定位）；
+        结构化 P2P（按标识符分配节点并设计路由算法）；分层搜索树
+        （网络划分为互不重叠的域，逐级目录节点存指针，顶层知道所有实体）。
+  \item \textbf{structured name} 便于组织成 name space（命名图：节点代表实体、边标签是名字），
+        大规模命名图常为有根有向无环图。实体用 path name 引用，
+        \textbf{name resolution} 逐个查找路径分量、遍历命名图；大规模图把节点分布到多台
+        name server，解析到由某服务器实现的节点时即转到该服务器继续。
+  \item \textbf{attribute-based naming} 用 (attribute, value) 对描述实体，
+        查询也如此表述，本质上要\textbf{穷举搜索}所有描述符，仅在单一数据库中可行；
+        把对映射到 DHT 可分散描述符，再用\textbf{空间填充曲线}让不同节点负责属性不同取值，
+        有助于在搜索时分摊负载。
+  \item 与其区分名字与地址，研究者探索\textbf{直接按名字路由请求}（类似 P2P 中用标识符查信息）。
+        在 \textbf{named-data network} 中，应用直接以名字取（只读）数据，
+        网络最终返回关联数据而非访问点地址。
+\end{itemize}
+
+\begin{actions}
+  \item 读原书第 6 章，重点看图 6.1（Mobile IP）、图 6.2（Chord 查找）、
+        图 6.5--6.8（分层定位服务的查找与更新）、图 6.14（DNS 三层分区）、
+        图 6.16--6.17（迭代与递归解析）、图 6.24（DNSSEC 信任链）、
+        图 6.31（Hilbert 曲线）、图 6.33（NDN 路由器）。
+  \item 手算一次 Chord 查找：在 $m=5$ 的环上从节点 1 解析键 26，
+        写出 finger table 并标出每一跳，验证为 $O(\log N)$。
+  \item 对比迭代式与递归式名字解析：从“服务器负担、缓存效果、通信开销”三点各写一句话。
+  \item 用 RDF 三元组描述你身边的三个资源（如（书, 作者, X）），
+        再写出对应的一个属性查询，思考为什么它需要穷举搜索。
+  \item 判断一个你常用的系统用的是 flat、structured 还是 attribute-based 命名，
+        并说明它把“名字解析”与“路由”的边界画在哪里。
+  \item 就 NDN 的“数据不得改名修改”假设展开一次小辩论：它带来什么好处，
+        又给需要频繁更新的应用（如聊天、协同编辑）制造了什么麻烦。
+\end{actions}

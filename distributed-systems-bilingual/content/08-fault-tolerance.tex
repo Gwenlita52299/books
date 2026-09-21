@@ -1,0 +1,427 @@
+% ============================================================
+%  第 8 章 Fault Tolerance 导读
+% ============================================================
+\chapter{Fault Tolerance}
+\begin{center}
+\begin{minipage}{0.9\textwidth}
+\itshape\small\color{dsgray}
+分布式系统区别于单机的根本一点是\textbf{部分失效}（partial failure）：一部分出故障，
+其余仍（看似）正常。容错的目标是让系统在故障发生时仍以可接受的方式继续运行并自动恢复。
+本章从基本概念与\textbf{失效模型}（crash / omission / timing / response / arbitrary）
+出发，讲\textbf{进程组}与\textbf{复制}、\textbf{共识}（flooding consensus、Raft、Paxos、
+拜占庭协议 PBFT、区块链共识），再讲\textbf{可靠通信}（RPC/组通信/原子多播）、
+\textbf{分布式提交}（2PC/3PC）与\textbf{恢复}（检查点与消息日志）。
+一条主线贯穿始终：\textbf{冗余是容错的关键，但冗余会带来协调开销}。
+\end{minipage}
+\end{center}
+
+\sechead{8.1 Introduction to fault tolerance}{容错引论}
+
+容错与\textbf{可依赖性（dependability）}密切相关，后者包含四个要求：
+\textbf{可用性（availability）}——系统随时就绪的概率（某一瞬间）；
+\textbf{可靠性（reliability）}——在一段\textbf{时间区间}内连续无故障（与可用性不同：
+每小时随机宕 1 毫秒可用性高达 99.9999\%，但仍“不可靠”；每年 8 月固定停机两周则
+可靠但可用性仅 96\%）；\textbf{安全性（safety）}——暂时失效也不发生灾难；
+\textbf{可维护性（maintainability）}——失效后易于修复。要区分三个词：
+\textbf{failure}（系统未兑现承诺）、\textbf{error}（可能导致 failure 的那部分状态）、
+\textbf{fault}（error 的成因）。fault 分瞬态、间歇、永久。应对故障有预防/容忍/移除/预测，
+本书重点是\textbf{容错}：即使存在故障也能提供服务。
+
+\subsection*{8.1.1 基本概念（Basic concepts）}
+失效模型：\textbf{crash failure}（服务器突然停止，此前一直正确）、
+\textbf{omission failure}（漏收 receive-omission / 漏发 send-omission）、
+\textbf{timing failure}（响应超出规定时间区间，太晚即 performance failure）、
+\textbf{response failure}（value failure 值错 / state-transition failure 控制流偏离）、
+\textbf{arbitrary failure}（也称 \textbf{Byzantine failure}，任意响应，最难处理）。
+关于能否判断进程已崩溃，要区分\textbf{异步系统}（无法从“无响应”断定崩溃，可能只是慢）
+与\textbf{同步系统}（执行速度与消息延迟有界，可断定崩溃）；现实中更合理的是
+\textbf{partially synchronous}：多数时候像同步系统，可用超时判定崩溃，但偶尔判错。
+据此 halting 失效从轻到重分为 fail-stop、fail-noisy、fail-silent、fail-safe、fail-arbitrary。
+
+\begin{closeread}
+\pair{A system is said to fail when it does not meet its promises.}{当一个系统未能兑现其承诺时，就说它失效了。}
+\pair{The cause of an error is called a fault.}{错误的成因称为故障（fault）。}
+\pair{The most serious are arbitrary failures, also known as Byzantine failures.}{最严重的失效是任意失效，也称为拜占庭失效。}
+\end{closeread}
+
+\origin{§8.1.1，原书 p.463–466（图 8.2 失效类型、Note 8.1 传统度量 MTTF/MTTR/MTBF、Note 8.2）}
+
+\subsection*{8.1.2 失效模型（Failure models）}
+上一个子节的失效类型即失效模型；它们针对“服务器、通信信道或两者”未履行职责。
+如何量化一个故障的严重程度，取决于模型假设。\commentary{注意 \textbf{omission}（该做未做）
+与 \textbf{commission}（不该做却做了）的区分，可避免在“是否恶意”上做主观判断——
+恶劣的“故障”与恶意的“攻击”在技术上往往难以分辨，这也说明可依赖性与安全性有时交织在一起。}
+
+\begin{closeread}
+\pair{A crash failure occurs when a server prematurely halts, but was working correctly until it stopped.}{崩溃失效指服务器过早停机，但在此之前它一直正确运行。}
+\end{closeread}
+
+\origin{§8.1.2，原书 p.466–470}
+
+\subsection*{8.1.3 通过冗余掩盖故障（Failure masking by redundancy）}
+容错能做的就是把故障对其他进程\textbf{藏起来}，关键手段是\textbf{冗余}，共三种：
+\textbf{信息冗余}（加校验位，如 Hamming 码，可从比特错中恢复）、
+\textbf{时间冗余}（重做，如事务中止后重试、请求超时重发，对瞬态/间歇故障特别有效）、
+\textbf{物理冗余}（加设备或进程，可硬件也可软件，如复制进程）。经典的硬件例子是
+\textbf{三模冗余（TMR）}：每级电路复制三份，后接三输入一输出的投票器，只要多数一致
+就输出该值；即使某个器件甚至投票器坏掉，结果仍正确。
+
+\begin{closeread}
+\pair{The key technique for masking faults is to use redundancy.}{掩盖故障的关键技术是使用冗余。}
+\end{closeread}
+
+\origin{§8.1.3，原书 p.470–471（图 8.3 三模冗余，Note 8.3）}
+
+\sechead{8.2 Process resilience}{进程韧性}
+
+容错的第一条路径是\textbf{把若干相同进程组织成进程组}：消息发给组，所有成员收到，
+一个成员倒下另有成员顶上。组分\textbf{扁平组}（所有进程平等、无单点、靠表决决策但慢）
+与\textbf{分层组}（有协调者，决策快但协调者失效则全组停摆，需重新选举）。
+成员管理可由\textbf{组服务器}集中管理（简单但有单点故障），也可分布式进行；
+加入/离开必须与数据消息\textbf{同步}（加入后必收到此后所有消息，离开后不得再收）。
+若组小到无法运作，还需能重建组。
+
+\subsection*{8.2.1 通过进程组实现韧性（Resilience by process groups）}
+引入进程组是为了让进程把“一组别的进程”当作\textbf{单一抽象}：P 向组
+$Q = \{Q_1, \dots, Q_N\}$ 发消息时无需知道成员是谁、有几个、在哪，且这些都可能变化。
+基于组的复制有两种：\textbf{主备}（分层，主协调所有写，主崩溃则由备份选举接替，
+即 primary-backup）与\textbf{复制写}（active replication / quorum，扁平组无单点，
+代价是分布式协调）。复制要多少份？若进程“静默失效”，$k+1$ 份即可容忍 $k$ 个故障
+（用其余那份的答案）；若出现\textbf{任意失效}（故障者可能发出相同错误答复），
+则需 $2k+1$ 份——多数派票即可胜出。
+
+\begin{closeread}
+\pair{The key approach to tolerating a faulty process is to organize several identical processes into a group.}{容忍故障进程的关键方法，是把若干相同的进程组织成一个进程组。}
+\pair{A system is said to be k-fault tolerant if it can survive faults in k components and still meet its specifications.}{若一个系统能承受 k 个组件的故障并仍满足其规格，则称它是 k-容错的。}
+\end{closeread}
+
+\origin{§8.2.1–8.2.2，原书 p.472–475（图 8.4 扁平组与分层组）}
+
+\subsection*{8.2.3 崩溃失效下的共识（Consensus in faulty systems with crash failures）}
+要让复制的进程组像单一健壮进程那样工作，必须满足一个关键假设：
+\textbf{每个无故障进程以相同顺序执行相同命令}——即组内需就“执行哪条命令”达成\textbf{共识}。
+无故障时很简单（全序多播或中央 sequencer 即可）；有故障时则棘手。
+\textbf{flooding consensus}：按轮进行，每轮把“已知的候选命令列表”发给所有进程，
+合并后按相同选择函数选一条执行；当某进程检测到别的进程崩溃时，它无法确定他人是否
+已收到该崩溃者的列表，于是\textbf{推迟决策到下一轮}，直到收到所有无故障进程的消息。
+更实用的是 \textbf{Raft}（Ongaro \& Ousterhout 2014）：约 5 个复制服务器，
+一个 \textbf{leader} 决定待定操作的提交顺序，本质是 primary-backup 协议。每个客户端
+请求以 $\langle o, t, k\rangle$ 形式追加到 leader 日志；leader 收到\textbf{多数}确认后
+执行 $o$ 并把最近提交索引 $c$ 设为 $n+1$。leader 崩溃后选举新 leader，
+server 不会投票给日志更旧的候选者；新 leader 广播日志即可补齐并提交旧操作。
+
+\begin{closeread}
+\pair{In a fault-tolerant process group, each nonfaulty process executes the same commands, in the same order, as every other nonfaulty process.}{在容错的进程组中，每个无故障进程都与其他无故障进程一样，以相同顺序执行相同的命令。}
+\pair{Consensus is expressed in terms of these logs: committed operations have the same position in each of the respective server’s logs.}{共识是用这些日志来表达的：已提交的操作在每个服务器各自的日志中处于相同位置。}
+\end{closeread}
+
+\origin{§8.2.3，原书 p.475–479（图 8.5 flooding consensus、图 8.6 leader 崩溃后的恢复）}
+
+\subsection*{8.2.4 例：Paxos（Example: Paxos）}
+Paxos（Lamport，1989 报告、1998 正式发表）假设很弱：部分同步甚至异步、
+消息可能丢失/重复/乱序、损坏可检测、操作确定、进程只会崩溃不会任意失效、也不串通。
+参与者分三类逻辑角色：\textbf{proposer}（代表客户端提案）、\textbf{acceptor}（接受提案）、
+\textbf{learner}（学习并执行被选定的提案）。若\textbf{多数 acceptor 接受了同一提案}，
+该提案即被\textbf{选定（chosen）}。核心安全不变式：若提案 $p$ 被选定，则任何时间戳
+$ts(p') > ts(p)$ 的提案 $p'$ 必携带同一操作。协议两阶段：\textbf{Phase 1}
+（prepare / promise）用于排除“多个自认为 leader 的 proposer”的干扰，
+acceptor 承诺不再接受更低时间戳的提案并回报已接受的最高时间戳提案，让 proposer
+\textbf{采用（adopt）}前任的操作；\textbf{Phase 2}（accept / learn）中 proposer 推广
+单一操作，acceptor 接受后发 \texttt{learn}，learner 从多数 acceptor 收到同一
+\texttt{learn} 即执行。Paxos 保证\textbf{安全（safety）}——不会发生坏事；
+但只在“足够多进程存活”时保证\textbf{条件活性（conditional liveness）}，
+需额外的\textbf{显式领导权接管}（propose/promise）才能持续推进。
+
+\begin{closeread}
+\pair{If a majority of acceptors accepts the same proposal, the proposal is said to be chosen.}{若多数接受者（acceptor）接受了同一提案，则该提案被称为已选定。}
+\pair{a safety property asserts that nothing bad will happen.}{安全性这一性质断言：坏事不会发生。}
+\end{closeread}
+
+\origin{§8.2.4，原书 p.479–491（图 8.7 Paxos 逻辑进程、图 8.8–8.13、Note 8.4 推进 Paxos）}
+
+\subsection*{8.2.5 任意失效下的共识（Consensus in faulty systems with arbitrary failures）}
+当组员可能\textbf{任意失效}（值错、控制流偏离，甚至向不同进程说不同的话），
+共识更难。拜占庭协定（Byzantine agreement）两条要求：
+\textbf{BA1}——所有无故障备份存相同值；\textbf{BA2}——若 primary 无故障，
+则备份存的值恰是 primary 发出的值。结论是：要容忍 $k$ 个任意失效，至少需要
+$3k+1$ 个成员（$3k$ 不够：$k=1$、3 个进程时，无论“分歧的 primary”还是
+“转发错值的备份”，都让无故障者收到 $\{T, F\}$ 而无法判断）。经典的多轮转发协议
+（BAP）可满足 BA1/BA2。实用的 \textbf{PBFT}（Castro \& Liskov 2002）用 $3k+1$
+个副本、主备模型、消息签名，分 pre-prepare / prepare / commit 三阶段：
+某无故障副本收到含自身在内的 $2k+1$ 条匹配 \texttt{prepare}（构成 prepare certificate
+$PC$）即就操作顺序达成共识；收到 $2k$ 条 \texttt{commit} 后执行并应答；客户端取
+至少 $k+1$ 个副本返回的、相同的响应。主失效时用 \texttt{view-change} 换视图，
+\textbf{HotStuff} 改进了 view change，使其可扩展到上百个副本。
+
+\begin{closeread}
+\pair{we will show that we need at least 3k + 1 members to reach consensus under these failure assumptions.}{我们将证明：在这些失效假设下，要达成共识至少需要 3k + 1 个成员。}
+\pair{BA1: Every nonfaulty backup process stores the same value.}{BA1：每个无故障的备份进程存储相同的值。}
+\end{closeread}
+
+\origin{§8.2.5，原书 p.491–502（图 8.14–8.17、图 8.18 PBFT 各阶段，Note 8.5–8.6）}
+
+\subsection*{8.2.6 区块链系统中的共识（Consensus in blockchain systems）}
+区块链共识有四条要求：\textbf{Agreement}（所有无故障节点就某交易块的接受及其在链中
+位置达成一致，或一致同意丢弃）、\textbf{Integrity}（每个无故障节点看到的已接受块及其
+位置相同）、\textbf{Termination}（每个无故障节点最终要么接受要么丢弃该包含在块中的交易）、
+\textbf{Validity}（若每个节点收到相同且已验证的块，就应接受其入链）。前两条是
+\textbf{安全}的核心，后两条关乎\textbf{活性}。无许可链靠\textbf{领导者选举}
+（选出后由 leader 决定追加哪个块）；若两个 leader 同时产生，会出现分叉，
+常见解法是丢弃较短的分支、只取较长分支。许可链常用 PBFT（或 HotStuff）。
+\commentary{区块链把\textbf{共识}（谁有权追加块）与\textbf{完整性}（密码学哈希链）
+分开看，是理解它的关键。}
+
+\begin{closeread}
+\pair{Agreement: All nonfaulty nodes agree on the acceptance of a block of transactions and its position in the blockchain, or agree that it should be discarded.}{一致性：所有无故障节点就某交易块的接受及其在区块链中的位置达成一致，或一致同意将其丢弃。}
+\end{closeread}
+
+\origin{§8.2.6，原书 p.502–503}
+
+\subsection*{8.2.7 实现容错的一些局限（Some limitations on realizing fault tolerance）}
+共识需要满足三条：进程产生相同输出值、每个输出值必须有效、每个进程最终必须产生输出。
+能否达成取决于系统假设（同步/异步、延迟是否有界、消息是否保序、单播/多播），
+只有其中一部分组合存在解。\textbf{FLP 结果}（Fischer et al. 1985）指出：若消息交付时间
+无已知有限上界，则即使只有一个进程（静默）失效，共识也不可解——因为\textbf{任意慢的
+进程与已崩溃的进程无法区分}。相关地，\textbf{CAP 定理}（Brewer 2000）说：
+共享数据的网络系统在 \textbf{C}（一致性，副本表现为单一最新副本）、
+\textbf{A}（可用性，更新最终总会被执行）、\textbf{P}（容忍分区）三者中至多满足两个。
+理解方式是：网络故障下两进程无法通信，允许一方接受更新就失去 C（得 $\{A,P\}$），
+要维持一致的假象则一方须假装不可用（得 $\{C,P\}$），只有能通信才能同时高可用且一致
+（得 $\{C,A\}$ 但无 P）。实践含义：分区发生时只能选择“继续推进”，同时启动恢复流程
+去缓解潜在不一致，如何取舍高度依赖应用（重复的数据库记录易修，重复的大额转账则不能）。
+
+\begin{closeread}
+\pair{The problem with such systems is that arbitrarily slow processes are indistinguishable from crashed ones (i.e., you cannot tell the dead from the living).}{这类系统的问题在于：任意慢的进程与已崩溃的进程无法区分（也就是说，你分不清死者和生者）。}
+\pair{Any networked system providing shared data can provide only two of the following three properties}{任何提供共享数据的网络系统，至多只能同时满足以下三个性质中的两个}
+\end{closeread}
+
+\origin{§8.2.7，原书 p.503–506（图 8.19 可达成共识的情形、CAP 定理）}
+
+\subsection*{8.2.8 失效检测（Failure detection）}
+要掩盖故障通常得先\textbf{检测}故障：一个组的无故障成员要能判定谁还在、谁已离开。
+机制只有两种：主动发“你还活着吗？”（等待回答），或被动等待消息到来（需保证有足够通信）。
+理论上失效检测器花样很多，归根到底靠\textbf{超时}：P 探测 Q，若 Q 超时未响应，
+则怀疑 Q 已崩溃。同步系统中“被怀疑崩溃”等于“已知崩溃”；部分同步系统中更实际的是
+\textbf{最终完美失效检测器}：超时后怀疑，但若 Q 之后又发来消息，就停止怀疑并\textbf{增大超时值}。
+现实问题：不可靠网络易产生\textbf{误判（false positive）}，把健康进程踢出成员表；
+超时机制也很粗糙。设计要点还包括：用 gossip 传递存活信息、区分网络故障与节点故障
+（不靠单一节点判断，而是询问其他邻居）、以及如何把成员失效通知他人
+（如 FUSE 用生成树传播，一个节点失效会被递归提升为组失效通知）。
+\commentary{失效检测是 Consensus、原子多播、2PC 等一切容错协议的共同地基：
+判错的代价可能是把正确进程排除，从而破坏安全性。}
+
+\begin{closeread}
+\pair{Failure detection is one of the cornerstones of fault tolerance in distributed systems.}{失效检测是分布式系统容错的基石之一。}
+\end{closeread}
+
+\origin{§8.2.8，原书 p.506–508（Note 8.7 完美失效检测器）}
+
+\sechead{8.3 Reliable client-server communication}{可靠的客户端-服务器通信}
+
+容错也涉及\textbf{通信失效}：信道同样会出现 crash、omission、timing、arbitrary 失效。
+实践中主要掩盖 crash 与 omission；arbitrary 失效常表现为\textbf{重复消息}
+（消息在网中被缓冲过久，重传后又被注入）。
+
+\subsection*{8.3.1 点对点通信（Point-to-point communication）}
+可靠传输协议（如 TCP）用\textbf{确认与重传}掩盖 omission 失效（丢包），对客户端完全隐藏；
+但\textbf{连接崩溃}不被掩盖——连接突然断开时客户端通常收到异常，只能自动重连
+（假设对方仍或再次可响应）。
+
+\begin{closeread}
+\pair{TCP masks omission failures, which occur in the form of lost messages, by using acknowledgments and retransmissions.}{TCP 通过确认与重传来掩盖以丢包形式出现的遗漏失效。}
+\end{closeread}
+
+\origin{§8.3.1，原书 p.508–509}
+
+\subsection*{8.3.2 存在失效时的 RPC 语义（RPC semantics in the presence of failures）}
+RPC 的目标是让远程调用看起来像本地调用，但出错时差异难掩盖。五类失效：
+客户端找不到服务器、请求消息丢失、服务器收到请求后崩溃、应答消息丢失、客户端发送后崩溃。
+（1）找不到服务器：抛异常或信号，但破坏透明性。
+（2）请求丢失：最简单，超时重发；问题是无法区分“请求丢了”与“应答丢了”，
+后者会导致\textbf{重复执行}。
+（3）服务器崩溃：正常是先执行后应答；若执行完崩溃则须上报失败，若执行前崩溃则可重发，
+但客户端操作系统无法区分。三种哲学：\textbf{at-least-once}（重试到有应答，至少执行一次）、
+\textbf{at-most-once}（立刻放弃，至多执行一次）、不保证（易实现）。
+\textbf{exactly-once} 通常无法实现：服务器两种策略（先发完成消息后处理 / 先处理后发）
+与客户端四种重发策略，共 8 种组合，\textbf{没有一种}在所有事件序列下都正确——
+要么请求永久丢失，要么被执行两次。
+（4）应答丢失：靠重发；\textbf{幂等（idempotent）}操作可安全重复，
+非幂等（如转账）则需给请求编号、由服务器跟踪最近序号以区分原请求与重传。
+（5）客户端崩溃：留下\textbf{孤儿计算（orphan）}，浪费算力、可能锁住资源。
+四种应对：orphan extermination（先写日志、重启后杀掉）、reincarnation（按 epoch 广播，
+收到即杀所有远程计算）、gentle reincarnation（先尝试找回 owner 再杀）、
+expiration（每个 RPC 给固定时间 $T$，超时须显式续期）。实践中最优往往是
+\textbf{什么都不做}，而是把客户端恢复到能处理任何应答的状态（见 §8.6 检查点与消息日志）。
+
+\begin{closeread}
+\pair{it can be shown that for any combination either the request is lost forever, or carried out twice.}{可以证明：对任意一种组合，请求要么被永久丢失，要么被执行两次。}
+\pair{Such a computation is called an orphan (computation).}{这样的计算称为孤儿计算（orphan）。}
+\end{closeread}
+
+\origin{§8.3.2，原书 p.509–514（图 8.20 服务器三种情形、图 8.21 客户端/服务器策略组合，Note 8.8）}
+
+\sechead{8.4 Reliable group communication}{可靠的组通信}
+
+复制进程让\textbf{可靠多播（reliable multicast）}变得重要：消息要交付给组内每个成员。
+关键区分\textbf{receive}（消息处理组件收到）与\textbf{deliver}（交付给上层核心功能）。
+当进程可能失效时，可靠组通信要求消息被\textbf{所有无故障成员}收到并交付。
+
+\subsection*{8.4.1 引言（Introduction）}
+最简单方案：发送者给每条多播消息编号并在 history buffer 中保留，直到每个接收者确认；
+接收者若收到比缺失序号更靠后的消息，就发\textbf{否定确认}请求重传。设计权衡包括
+确认可捎带、重传可用点对点或多播。
+
+\begin{closeread}
+\pair{group communication is considered to be reliable when it can be guaranteed that a message is received by and subsequently delivered to all nonfaulty group members.}{当可以保证一条消息被所有无故障组成员收到并随后交付时，组通信才被认为是可靠的。}
+\end{closeread}
+
+\origin{§8.4.1，原书 p.515–518（图 8.22 接收与交付、图 8.24）}
+
+\subsection*{8.4.2 可靠多播的可扩展性（Scalability in reliable multicasting）}
+给 $N$ 个接收者返回确认会让发送者被反馈淹没，即\textbf{反馈内爆（feedback implosion）}。
+解法之一是只回\textbf{否定确认}（更易扩展，但无硬保证）。两个代表性方案：
+\textbf{feedback suppression}（SRM）：接收者只在发现缺失时\textbf{多播}否定确认、
+并加\textbf{随机延迟}，听到别人已请求就抑制自己，使送到发送者的请求趋于一条；
+\textbf{分层方案}：把接收者分成子组、组成树，每个子组选一个\textbf{本地协调者}，
+协调者之间用可靠连接转发消息并聚合反馈——一个 ack/nack 就聚合了大量反馈。
+还有基于 gossip 的 push-pull 反熵方案，天然健壮。
+
+\begin{closeread}
+\pair{With many receivers, the sender may be swamped with such feedback messages, which is also referred to as a feedback implosion.}{当接收者众多时，发送者可能被这类反馈消息淹没，这也被称为反馈内爆。}
+\end{closeread}
+
+\origin{§8.4.2，原书 p.518–522（图 8.25 反馈抑制、图 8.26 分层可靠多播）}
+
+\subsection*{8.4.3 原子多播（Atomic multicast）}
+\textbf{原子多播}要求消息要么交付给所有无故障成员，要么谁都不交付（all-or-nothing）。
+例：复制数据库把更新多播给各副本，若发送者 P 在多播完成前崩溃，
+有的副本会执行、有的不会，数据库就不一致了，必须避免。
+\textbf{虚拟同步（virtual synchrony）}把多播与\textbf{组成员变化}联系起来：
+每条多播消息关联一个\textbf{交付列表}（即发送者当时的 group view），
+\textbf{视图变化（view change）}像一道屏障，不允许任何多播穿过——所有在途多播要么
+在视图变化生效前被所有成员交付，要么全不交付。消息排序分四种：
+\textbf{无序}、\textbf{FIFO 序}、\textbf{因果序}、\textbf{全序}；
+原子多播 = 全序交付 + all-or-nothing。Isis 的实现用\textbf{稳定消息}
+（被所有成员收到后才交付）与 \texttt{flush} 消息来安装新视图。
+
+\begin{closeread}
+\pair{what is often needed in a distributed system is the guarantee that a message is delivered to either all (nonfaulty) group members or to none.}{分布式系统中常常需要的保证是：一条消息要么交付给所有（无故障的）组成员，要么谁都不交付。}
+\pair{a view change acts as a barrier across which no multicast can pass.}{视图变化就像一道屏障，任何多播都无法穿过它。}
+\end{closeread}
+
+\origin{§8.4.3，原书 p.522–528（图 8.27 虚拟同步多播、图 8.28–8.30 排序、图 8.31 视图变化，Note 8.9）}
+
+\sechead{8.5 Distributed commit}{分布式提交}
+
+原子多播是一类更一般问题——\textbf{分布式提交}的特例：让进程组每个成员都执行某操作，
+或都不执行。最简的\textbf{单阶段提交}由协调者直接通知参与者执行，缺点是无法反馈失败。
+常用的是\textbf{两阶段提交（2PC）}：第一阶段（voting）协调者发 \texttt{vote-request}，
+参与者回 \texttt{vote-commit} 或 \texttt{vote-abort}；第二阶段（decision）协调者收齐后
+广播 \texttt{global-commit} 或 \texttt{global-abort}，参与者据此本地提交/中止。
+2PC 的参与者与协调者都有阻塞等消息的状态，需用\textbf{超时}处理崩溃：
+参与者处于 READY 等不到全局决定时，可询问其他参与者（若对方已 COMMIT/ABORT/INIT
+即可决定；若对方也 READY 则无法决定）。当所有参与者都 READY、协调者却崩溃时，
+协议必须\textbf{阻塞等待协调者恢复}，故 2PC 是\textbf{阻塞式提交协议}。
+为避免阻塞，可用\textbf{多播}让接收者立即转发，或改\textbf{三阶段提交（3PC）}：
+多一个 \texttt{pre-commit} 阶段，满足“不存在可直接到 COMMIT/ABORT 的单状态”等条件，
+在 fail-stop 假设下不阻塞（但实践中 2PC 阻塞很少发生，3PC 用得不多）。
+
+\begin{closeread}
+\pair{The distributed commit problem involves having an operation being performed by each member of a process group, or none at all.}{分布式提交问题涉及让进程组的每个成员都执行某操作，或都不执行。}
+\pair{For this reason, 2PC is also referred to as a blocking commit protocol.}{正因如此，2PC 也被称为阻塞式提交协议。}
+\end{closeread}
+
+\origin{§8.5，原书 p.528–535（图 8.32 2PC 状态机、图 8.33 参与者动作、图 8.34–8.35 Python 伪码，Note 8.10–8.11）}
+
+\sechead{8.6 Recovery}{恢复}
+
+故障发生后，出错进程须能恢复到正确状态。两种错误恢复：
+\textbf{backward recovery}（从当前错误状态回到先前正确状态，需\textbf{检查点}）
+与 \textbf{forward recovery}（把系统带到可继续执行的新正确状态，前提是事先知道
+可能发生哪些错误）。例：丢包后重传是 backward（回到重发前状态）；
+\textbf{erasure correction}（用 $(n,k)$ 块纠删码从其他包重构丢失包）是 forward。
+backward 通用、可集成进中间件，但代价高、且有些状态无法回滚
+（取走的钱、\texttt{/bin/rm -fr *}），也不能保证同类故障不再发生。
+
+\subsection*{8.6.1 引言（Introduction）}
+由于检查点昂贵，容错系统常把它与\textbf{消息日志}结合：发消息前记录（sender-based logging）
+或收到消息先记录再交付（receiver-based logging）。只靠检查点时，重启后的行为可能与故障前
+不同（通信时间不确定导致消息顺序不同）；配合消息日志则能\textbf{重放}事件，
+更便于与外部世界交互——例如用户输入导致错误时，用较旧检查点 + 重放到输入点
+比频繁打检查点更高效。
+
+\begin{closeread}
+\pair{In backward recovery, the main issue is to bring the system from its present erroneous state back into a previously correct state.}{在向后恢复中，主要问题是将系统从当前的错误状态带回先前的正确状态。}
+\end{closeread}
+
+\origin{§8.6.1，原书 p.536–538}
+
+\subsection*{8.6.2 检查点（Checkpointing）}
+需要记录\textbf{一致全局状态}，即 \textbf{distributed snapshot}：若某进程 P 记录了
+\textbf{收到}某消息，则应有进程 Q 记录其\textbf{发送}——消息总有来处。
+尽量恢复到最近的分布式快照，即 \textbf{recovery line}。
+\textbf{coordinated checkpointing}：所有进程同步写本地存储，天然全局一致
+（用两阶段阻塞协议：协调者发 checkpoint-request，各进程打检查点、排队后续消息并确认，
+收到全部确认后再发 checkpoint-done 放行）；可只通知\textbf{依赖}协调者的进程，得到
+incremental snapshot。\textbf{independent checkpointing}：各自随时打点，
+但恢复时可能\textbf{级联回滚}，甚至触发 \textbf{domino effect}（一直退回初始状态）；
+需记录区间依赖 $INT_i(m) \to INT_j(n)$，计算复杂。由于真正瓶颈是写稳定存储的开销
+而非协调本身，更简单的 coordinated checkpointing 反而更常用。
+
+\begin{closeread}
+\pair{In a distributed snapshot, if a process P has recorded the receipt of a message, then there should also be a process Q that has recorded the sending of that message.}{在分布式快照中，若进程 P 记录了某消息的接收，那么就应存在进程 Q 记录了该消息的发送。}
+\end{closeread}
+
+\origin{§8.6.2，原书 p.538–540（图 8.37 恢复线、图 8.38 domino effect）}
+
+\subsection*{8.6.3 消息日志（Message logging）}
+若消息传输可\textbf{重放}，就能从某个检查点出发、重放其后所有消息达到一致状态，
+从而减少检查点数量。前提是 \textbf{piecewise deterministic execution model}：
+每段执行从一次\textbf{非确定性事件}（如收到消息）开始，之后完全确定；
+只要记录所有非确定性事件即可完整重放。核心风险是\textbf{孤儿进程（orphan process）}：
+它在别的进程崩溃后存活，但恢复后状态不一致。用记号 $DEP(m)$（依赖消息 $m$ 交付的进程集）
+与 $COPY(m)$（持有 $m$ 尚未可靠存储的进程集）可精确定义：
+$Q$ 是孤儿 $\iff \exists m: Q \in DEP(m)$ 且 $COPY(m) \subseteq FAIL$。
+两类日志协议：\textbf{pessimistic}（保证每条非稳定消息至多一个进程依赖它，
+即交付前先把 $m$ 写入可靠存储，实现简单，实践中首选）与 \textbf{optimistic}
+（崩溃后再回滚孤儿进程，需跟踪依赖，实现更复杂）。
+
+\begin{closeread}
+\pair{The basic idea underlying message logging is that if the transmission of messages can be replayed, we can still reach a globally consistent state}{消息日志的基本思想是：如果消息的传输可以被重放，我们仍能到达一个全局一致的状态}
+\end{closeread}
+
+\origin{§8.6.3，原书 p.541–542（图 8.39 错误重放导致孤儿进程，Note 8.12）}
+
+\sechead{8.7 Summary}{小结}
+
+\begin{itemize}
+  \item 容错 = 在故障存在时仍能继续运行；\textbf{冗余}是关键，包括信息、时间、物理三类冗余。
+  \item 失效模型：crash、omission、timing、response、arbitrary（拜占庭）。
+        是否能从“无响应”断定崩溃，取决于系统是异步、同步还是部分同步。
+  \item \textbf{进程组}把多个进程伪装成一个健壮进程。无故障进程必须以相同顺序执行相同命令，
+        即达成\textbf{共识}。
+  \item \textbf{Paxos} 用 $2k+1$ 个服务器实现 $k$-容错（处理崩溃失效）；
+        处理\textbf{任意失效}则需 $3k+1$ 个服务器（PBFT）。
+  \item \textbf{可靠组通信}：组小则易实现，组大则扩展性成问题，
+        关键是减少反馈消息（feedback suppression、分层协调者）。
+        \textbf{原子多播}再用 all-or-nothing + 全序交付，可用虚拟同步精确表述。
+  \item \textbf{分布式提交}：2PC 是阻塞协议，3PC 在 fail-stop 下不阻塞。
+  \item \textbf{恢复}靠检查点；为减少检查点开销，常与消息日志结合，
+        通过重放达到一致状态（pessimistic vs optimistic 日志）。
+\end{itemize}
+
+\begin{actions}
+  \item 读原书第 8 章，重点看图 8.2（失效类型）、8.5（flooding consensus）、
+        8.7–8.13（Paxos 演进）、8.18（PBFT 阶段）、8.19（可达成共识的情形）、
+        8.32（2PC 状态机）、8.38（domino effect）。
+  \item 手推一遍：为什么 3 个进程无法容忍 1 个任意失效，而 4 个可以？
+        分别画出“primary 说谎”和“backup 说谎”两种情形。
+  \item 用自己的话解释 CAP 定理，并给一个“宁可牺牲 C 保 A、P”与一个
+        “宁可牺牲 A 保 C、P”的真实场景。
+  \item 把 Raft 的 leader 日志与 Paxos 的 accept/promise 对应起来，
+        找出二者的共同安全不变式。
+  \item 检查你所在系统：是否使用了检查点 + 消息日志？若是纯检查点，
+        找出一个“只回滚会出错”的场景。
+  \item 写一段伪代码，实现 2PC 参与者在 READY 状态超时后的终止协议
+        （询问其他参与者并处理 COMMIT/ABORT/INIT/READY 四种回答）。
+\end{actions}

@@ -1,0 +1,53 @@
+% ============================================================
+%  前言 / 使用说明
+% ============================================================
+\chapter*{前言：如何使用本导读}
+\addcontentsline{toc}{chapter}{前言：如何使用本导读}
+
+本书是 Maarten van Steen 与 Andrew S. Tanenbaum 合著
+\textit{Distributed Systems}（第 4 版，2023 / 修订版 4.03）的
+\textbf{中英对照学习导读}。它并不是原书的逐段翻译，而是按原书章节结构，
+用中文重述每一节的核心思想、关键术语与设计权衡，并在必要处引用原书
+的简短原文，辅以解读与实践清单。
+
+\begin{ideabox}[为什么做成“导读”而不是“全文翻译”]
+原书版权归作者所有，明确禁止整书翻译或复制。因此本导读采用更利于学习的
+形式：\textbf{中文讲解 + 关键术语对照 + 少量原文短引 + 解读/行动清单}。
+想要完整论述、图例和习题，请对照原书阅读。
+\end{ideabox}
+
+\section*{原书概览}
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+书名 & Distributed Systems, 4th edition（Version 4.03, 2025）\\
+作者 & Maarten van Steen, Andrew S. Tanenbaum\\
+出版 & 作者自出版（digital version 免费发放）\\
+篇幅 & 9 章，约 680 页\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section*{原书结构：九个视角}
+
+原书刻意从\textbf{不同的视角}切入分布式系统，每个视角对应一章：
+
+\begin{enumerate}[leftmargin=1.6em]
+  \item \textbf{Introduction} —— 什么是分布式系统、设计目标、分类与常见陷阱
+  \item \textbf{Architectures} —— 架构风格、中间件、分层/对称/混合架构
+  \item \textbf{Processes} —— 线程、虚拟化、客户端、服务器、代码迁移
+  \item \textbf{Communication} —— RPC、面向消息通信、多播
+  \item \textbf{Coordination} —— 时钟、逻辑时钟、互斥、选举、gossip、定位
+  \item \textbf{Naming} —— 扁平/结构化/基于属性的命名，DNS、DHT
+  \item \textbf{Consistency and replication} —— 一致性模型与副本管理
+  \item \textbf{Fault tolerance} —— 失败模型、共识、Paxos、提交、恢复
+  \item \textbf{Security} —— 密码学、认证、信任、授权、监控
+\end{enumerate}
+
+\begin{ideabox}[贯穿全书的一条主线]
+分布式系统的本质困难来自\textbf{部分失败（partial failure）}与
+\textbf{缺乏全局时钟}。几乎每一章都在回答同一个问题：
+在进程可能失败、消息可能丢失、节点可能任意来去的条件下，
+我们还能对系统行为作出什么样的\textbf{可证保证}？
+\end{ideabox}

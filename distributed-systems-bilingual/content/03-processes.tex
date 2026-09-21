@@ -1,0 +1,811 @@
+% ============================================================
+%  第 3 章 Processes 导读
+% ============================================================
+\chapter{Processes}
+\begin{center}
+\begin{minipage}{0.9\textwidth}
+\itshape\small\color{dsgray}
+本章聚焦“进程”这一分布式系统的基本构件。先讲\textbf{线程}（threads）：为什么比进程更细的粒度能让
+分布式应用更好写、更快；再讲\textbf{虚拟化}（virtualization）：虚拟机与容器如何隔离并复用资源；
+接着分别剖析\textbf{客户端}（clients）与\textbf{服务器}（servers）的解剖结构，并专门考察
+Apache 与服务器集群；最后讨论\textbf{代码迁移}（code migration）：为什么要迁移、有哪些模型、
+以及在异构系统里如何落地。
+\end{minipage}
+\end{center}
+
+\sechead{3.1 Threads}{线程}
+
+进程是分布式系统的构件，但它的粒度太粗：为每个并发流开一个进程，代价高且难组织。
+于是操作系统提供更细的粒度——每进程多个\textbf{控制线程（threads of control）}。
+本节的核心问题是：进程与线程是什么关系，线程为什么既是性能手段也是结构化手段。
+
+\subsection*{3.1.1 线程介绍（Introduction to threads）}
+操作系统为每个要执行的程序创建\textbf{虚拟处理器}，并用\textbf{进程表}记录其
+\textbf{进程上下文（process context）}：CPU 寄存器值、内存映射、打开的文件、记账信息、权限等。
+\textbf{进程（process）}常定义为“执行中的程序”。操作系统要保证独立进程之间不能互相破坏正确性，
+这种\textbf{并发透明}通常需要硬件支持，代价是：创建进程要建立完整独立地址空间，
+切换进程要改 Memory Management Unit（MMU）寄存器、令 Translation Lookaside Buffer（TLB）失效，
+必要时还要在主存与磁盘间交换进程。
+
+\textbf{线程}与进程一样独立执行各自的代码，但不再强求高并发透明：线程系统只维护让 CPU 被多线程共享
+所需的\textbf{最少信息}，线程上下文通常只含处理器上下文加上少量线程管理信息（如“某线程正阻塞在
+mutex 上”）。因此，同一进程内线程间的不当访问，防护责任完全落在应用开发者身上。
+于是三者层层包含：\textbf{处理器上下文 $\subset$ 线程上下文 $\subset$ 进程上下文}。
+这带来两个推论：多线程应用性能几乎不会比单线程差，往往还更好；但多线程开发需要额外的智力投入，
+因为线程之间没有进程那样的自动保护。
+
+\begin{ideabox}[Note 3.1：上下文切换的代价]
+测性能从来不容易。时钟中断处理程序每 $T$ 毫秒被激活一次（常见 $T$ 为 0.5–20 ms，即
+2000 Hz 到 50 Hz）。开销分两部分：\textbf{直接开销}是真正切换上下文的耗时（Intel 处理器上
+约 0.5–1 $\mu$s）加处理程序自身工作耗时（约 0.5–7 $\mu$s，强依赖实现）；\textbf{间接开销}
+则主要来自\textbf{缓存扰动}。对简单的时钟中断，测得间接开销约 \textbf{80\%}：一次中断就可能
+让块 D 被逐出缓存，回访 D 又把 C 逐出……引起较持久的缓存重组，从而拖慢应用整体性能。
+\end{ideabox}
+
+\medskip\noindent 线程有哪些好处？首要一条：单线程进程中一旦执行\textbf{阻塞系统调用}，
+整个进程都被阻塞。以电子表格为例——它要维护单元格间（常跨表）的函数依赖，改一个值可能触发
+一连串计算；若只有一个控制流，等待输入时就不能算，计算依赖时又难接收输入。自然解法是至少两个
+线程：一个管交互、一个管更新，再加第三个后台备份。第二个好处是可在多处理器/多核上利用
+\textbf{并行}：每个线程分配到不同 CPU 或核，共享数据放共享主存，设计得当则并行对
+单处理器系统也是透明的（只是更慢）。第三，大应用常拆成协作程序、用操作系统提供的
+\textbf{进程间通信（IPC）}（命名管道、消息队列、共享内存段）协作；IPC 的致命缺点是通信需要
+大量\textbf{上下文切换}（图 3.1 的 S1 用户态→内核态、S2 进程上下文切换、S3 内核态→用户态），
+而线程间改用共享数据通信，切换有时可完全在用户态完成，性能提升显著。最后还有一个纯粹的
+软件工程理由：很多应用用一组协作线程来组织就是更自然。
+
+\medskip\noindent 线程实现有两条路线。\textbf{用户级线程库}：创建/销毁便宜（主要是分配与释放栈内存），
+线程上下文切换往往只需存取几个 CPU 寄存器，无需改内存映射、清 TLB、做 CPU 记账。
+但用户级线程采用 \textbf{many-to-one} 模型——多个线程映射到单一可调度实体，一旦调用阻塞系统
+调用，整个进程连同其所有线程都被阻塞，对“阻塞 I/O 不该阻止其他部分执行”的场景几乎没用。
+\textbf{内核级线程}采用 \textbf{one-to-one} 模型，每个线程都是可调度实体，但每次线程操作都要
+系统调用，切换开销可能和进程一样大；不过既然上下文切换开销主要由缓存使用决定、而非
+many-to-one 与 one-to-one 之分，许多操作系统出于简单就选了 one-to-one。
+
+\begin{ideabox}[Note 3.2：many-to-many 线程模型]
+折中方案是把用户级与内核级线程混合，即 \textbf{many-to-many}：内核线程在单进程上下文中运行、
+可有多条；运行库同时提供用户级线程包（创建/销毁/同步），且\textbf{完全在用户态实现}，
+操作线程无需内核介入。多个内核线程共享同一线程包，各自可运行自己的用户线程：内核线程通过
+系统调用获得自己的栈后，执行调度例程去找可运行的用户线程；线程表由多个内核线程共享，
+用用户态 mutex 保护。用户线程阻塞或切换时，内核线程无需知情——切换纯在用户态完成，
+对内核线程看起来就是普通程序代码。好处：创建/销毁/同步便宜、阻塞调用不冻结整个进程、
+应用只见到用户线程、内核线程可轻易用于多处理器。Go 语言与 libfibre 是这一模型的实现，
+Arachne 稍作变体（每核一个内核线程，但不支持阻塞 I/O）。
+\end{ideabox}
+
+\begin{closeread}
+\pair{A process is often defined as a program in execution, that is, a program that is currently being executed on one of the operating system's virtual processors.}{进程常被定义为“执行中的程序”，即当前正在操作系统的某个虚拟处理器上执行的程序。}
+\pair{Like a process, a thread executes its own piece of code, independently of other threads.}{与进程一样，线程独立于其他线程、执行自己的一段代码。}
+\pair{The most important benefit comes from the fact that in a single-threaded process, whenever a blocking system call is executed, the process as a whole is blocked.}{最重要的好处来自这一点：在单线程进程中，只要执行一次阻塞系统调用，整个进程就会被阻塞。}
+\pair{A major drawback of user-level threads comes from deploying the many-to-one threading model: multiple threads are mapped to a single schedulable entity.}{用户级线程的一大缺点源于采用 many-to-one 线程模型：多个线程被映射到单一可调度实体上。}
+\end{closeread}
+
+\origin{§3.1.1，原书 p.113–122（图 3.1 上下文切换、图 3.2 缓存扰动、图 3.3–3.4 Python 进程/线程示例、图 3.5 内核级与用户级线程的组合）}
+
+\subsection*{3.1.2 分布式系统中的线程（Threads in distributed systems）}
+线程让“阻塞系统调用不阻塞整个进程”成为可能（前提是非 many-to-one 模型），因此在分布式系统中
+尤其有吸引力：同时维护多条逻辑连接变得容易。分客户端与服务器两侧看。
+
+\medskip\noindent\textbf{多线程客户端}：广域网中往返延迟常达数百毫秒甚至数秒，为做到高
+分布透明，需要“把通信延迟藏起来”。常用办法是发起通信后立刻去做别的事。典型例子是 Web 浏览器：
+一个 Web 文档常由 HTML 加一堆图片/图标组成，取每个元素都要建立 TCP/IP 连接、读数据、
+交给显示组件，而建连接和读数据都是阻塞操作。浏览器通常先取 HTML 并开始显示，一边让用户滚动
+一边继续取图片，图片到了就显示——用户不必等整页取完。把浏览器写成\textbf{多线程客户端}
+能显著简化实现：主 HTML 到手后，为其余部分各起线程，每个线程建立自己的连接、用标准阻塞调用
+拉数据，代码彼此相同且简单。更进一步，若 Web 服务器被复制到多台机器（同一站点、同一名字，
+请求按 round-robin 或其他负载均衡策略转发），多线程客户端可对不同副本建立连接、并行传输，
+使整页显示时间远短于单副本；这要求客户端能处理真正并行的数据流，而线程正适合此事。
+
+\begin{ideabox}[Note 3.3：客户端线程与性能]
+Blake 等（2010）用\textbf{线程级并行度（thread-level parallelism, TLP）}衡量多核利用：
+设 $c_i$ 为恰好有 $i$ 个线程同时执行的时间比例，则
+$\mathrm{TLP}=\frac{\sum_{i=1}^{N} i\cdot c_i}{1-c_0}$，$N$ 为可同时执行的最大线程数。
+当时典型 Web 浏览器 TLP 仅 1.5–2.5，即客户机具备 2–3 个核/处理器就够用。而现代浏览器会创建
+数百个线程、同时有数十个活跃（活跃未必在运行，可能阻塞等 I/O）。可见多线程更多用于
+\textbf{组织应用结构}，而非直接换来硬件层面的巨大加速；要真正利用并行，还需改造算法
+（Meyerovich \& Bodik 2010）。
+\end{ideabox}
+
+\medskip\noindent\textbf{多线程服务器}：这才是分布式中多线程的主要用武之地——它既简化服务器代码，
+又便于利用并行（现代多核下并行更是显而易见）。以文件服务器为例：流行组织是
+\textbf{dispatcher/worker}（图 3.6），一个 \textbf{dispatcher} 线程读入客户端发到知名端点的请求，
+检查后交给一个空闲（阻塞中）的 \textbf{worker} 线程；worker 对本地文件系统做阻塞读，
+被挂起时另一个线程被调度（dispatcher 再取活，或其他就绪 worker 运行）。对比单线程服务器：
+主循环取一个请求、处理完再取下一个，等磁盘时服务器空闲、无法处理其他客户端请求，若跑在专用机器上
+CPU 也白白闲置，单位时间处理的请求数少得多。第三种设计是\textbf{单线程有限状态机}：
+不用阻塞磁盘操作，而是发起\textbf{异步（非阻塞）}磁盘操作并稍后由操作系统中断唤醒，
+期间记录请求状态、继续看有没有别的请求；代价是失去了“顺序进程”模型，每次阻塞操作都要精确
+记录自己处理到哪、存下额外状态，等于用困难的方式模拟多线程及其栈。
+三种方式可总结为（图 3.7）：多线程 = 有并行 + 阻塞调用；单线程进程 = 无并行 + 阻塞调用；
+有限状态机 = 有并行 + 非阻塞调用。线程的价值由此清晰：既保住“顺序进程 + 阻塞系统调用”的易写性，
+又获得并行；阻塞调用写起来就像普通过程调用。同样，也可以用多个进程来组织服务器
+（多进程服务器），操作系统能提供更强的共享数据保护，但进程间通信量大时性能会比线程差。
+
+\begin{closeread}
+\pair{An important property of threads is that they can provide a convenient means of allowing blocking system calls without blocking the entire process in which the thread is running}{线程的一个重要特性是：它们能方便地允许阻塞系统调用，而不阻塞该线程所在的那个进程。}
+\pair{The usual way to hide communication latencies is to initiate communication and immediately proceed with something else.}{隐藏通信延迟的常用办法是：发起通信后立即去做别的事情。}
+\pair{They make it possible to retain the idea of sequential processes that make blocking system calls and still achieve parallelism.}{线程使我们可以保留“顺序进程 + 阻塞系统调用”的观念，同时仍然获得并行。}
+\end{closeread}
+
+\origin{§3.1.2，原书 p.122–126（图 3.6 dispatcher/worker 多线程服务器、图 3.7 构造服务器的三种方式）}
+
+\sechead{3.2 Virtualization}{虚拟化}
+
+若说线程/进程是“同时做更多事”，其本质是在单 CPU 上快速切换制造并行\textbf{假象}。
+这种“一个资源装成多个”的思路可推广到其他资源，即\textbf{资源虚拟化（resource virtualization）}。
+它已用了几十年，近年随（分布式）系统愈发普遍与复杂而重新受到重视——因为应用软件的寿命
+往往长于其所依赖的系统软件与硬件。
+
+\subsection*{3.2.1 虚拟化原理（Principle of virtualization）}
+每个（分布式）计算机系统都向上层软件提供\textbf{编程接口}（从 CPU 的指令集到中间件的大量 API）。
+虚拟化的本质就是\textbf{扩展或替换一个已有接口，以模仿另一个系统的行为}（图 3.8）。
+它最早（1970 年代）的动机是让遗留软件（含其操作系统）跑在昂贵的大型机上，如 IBM 370 提供的
+虚拟机。硬件变便宜、OS 种类减少后虚拟化一度降温，但 1990 年代末又变了：高层次软件（中间件、
+应用）比底层软硬件稳定得多，虚拟化可把遗留接口移植到新平台；网络无处不在后，
+把每个应用连同其库与操作系统放进各自虚拟机、跑在共同平台上，能大幅降低平台与机器的异构性。
+\textbf{可移植性（portability）}因此成为虚拟化在分布式系统中如此关键的最重要原因之一。
+另一个重要动机是\textbf{隔离代码}（尤见于云计算），但它也带来新的安全威胁。
+
+\medskip\noindent 计算机系统一般在三个层次提供四类接口：硬件与软件之间的\textbf{指令集架构
+（instruction set architecture, ISA）}（分特权指令与一般指令）、操作系统提供的\textbf{系统调用}、
+以及通常构成 \textbf{API} 的\textbf{库调用}（图 3.9）。虚拟化即模仿这些接口，有两种方式：
+其一，构建运行环境提供抽象的指令集来执行应用——可\textbf{解释}（如 Java 运行环境）也可
+\textbf{模拟}（如在 Unix 上跑 Windows 应用，此时还得模仿系统调用，远非易事），得到
+\textbf{进程虚拟机（process virtual machine）}（图 3.10a），只针对单个进程；
+其二，做一层屏蔽原始硬件、却对外提供同一（或他者）完整指令集的系统，即
+\textbf{原生虚拟机监视器（native virtual machine monitor, VMM）}（图 3.10b），它需实现设备驱动。
+更省事的做法是\textbf{宿主式 VMM（hosted VMM）}（图 3.10c），运行在可信的宿主操作系统之上、
+复用其设施（但通常需特殊权限而非普通用户级应用），这在数据中心与云中极为流行。
+VMM 可同时向不同程序提供接口，于是多个不同的 guest OS 能独立并发跑在同一平台上。
+Rosenblum \& Garfinkel（2005）强调：虚拟机让完整应用及其环境隔离，一次错误或安全攻击
+不再影响整台机器；同时进一步解耦硬件与软件，提升\textbf{可移植性}，便于整体搬迁（见 §3.5）。
+
+\begin{ideabox}[Note 3.5：虚拟机为何不慢]
+VMM、guest OS 与应用的大部分代码都\textbf{原生}跑在底层硬件上，一般（非特权）指令由底层机器直接执行。
+Popek 与 Goldberg（1974）给出了高效执行虚拟机的形式化条件，核心结果：
+\textbf{“对任何常规计算机，只要该机器的敏感指令集合是特权指令集合的子集，就可以构造出虚拟机监视器。”}
+只要敏感指令在用户态执行时能被捕获，其余指令即可原生执行。麻烦在于并非所有指令集都满足该条件，
+最流行的 Intel x86 就有 17 条\textbf{非特权的敏感指令}。两个解法：\textbf{全虚拟化}
+（如 VMWare：扫描可执行文件，在非特权敏感指令周围插入代码，把控制转到 VMM 处模拟，guest OS 与
+应用都无需改动）；或\textbf{半虚拟化（paravirtualization）}（要求修改 guest OS，如 Xen），
+让这些指令的副作用被消解。
+\end{ideabox}
+
+\begin{closeread}
+\pair{In its essence, virtualization deals with extending or replacing an existing interface to mimic the behavior of another system}{本质上，虚拟化所做的是扩展或替换一个已有接口，以模仿另一个系统的行为。}
+\pair{portability is perhaps the most important reason why virtualization plays such a key role in many distributed systems.}{可移植性，或许正是虚拟化在许多分布式系统中扮演如此关键角色的最重要原因。}
+\end{closeread}
+
+\origin{§3.2.1，原书 p.127–133（图 3.8 接口与虚拟化、图 3.9 四类接口、图 3.10 进程 VM / 原生 VMM / 宿主式 VMM、图 3.11 分层执行）}
+
+\subsection*{3.2.2 容器（Containers）}
+虚拟机要求应用依赖整套指令集与操作系统，往往需要不小代价来保证可移植性与性能。
+但现实中应用通常只依赖\textbf{特定的库与支撑软件}：我们真正想要的是让不同应用并排运行、
+各自使用自己的环境、互不察觉。这就是\textbf{容器（container）}：可看作一组
+\textbf{二进制（镜像）}，共同构成运行应用的软件环境——类似登录 Unix 系统时看到的那套标准目录
+（可执行程序、库、文档等）。朴素实现是把整套环境复制成根文件系统下的子目录，用 \texttt{chroot}
+把用户改道到该子目录，应用只看到自己需要的库与依赖，其它容器各有各的视图：在此意义上，
+容器\textbf{虚拟化了应用的软件环境}。但朴素实现不够：不同容器中的应用与进程需要互相隔离，
+整份复制效率低（很多库其实相同），宿主还需对自身资源有控制权。Linux 用三种机制解决：
+\textbf{namespaces}（给容器内一组进程独立的标识符视图，如 PID namespace 让每个容器都有自己的
+init 进程，凭 \texttt{unshare --pid --fork --mount-proc bash} 即可观察）、
+\textbf{union file system}（把多个文件系统按层组合，只有最高层可写；通过多次
+\texttt{mount} 只读叠加，可让 PHP 应用改用旧版本而无需整份复制）、
+以及 \textbf{control groups（cgroups）}（限制一组进程可用的主存、CPU 优先级等，
+防止单个容器耗尽资源、妨碍其他容器）。总之，容器是“一份文件归档 + 特定的共享只读层栈”，
+容器内进程通过 namespaces 以为自己的上下文是唯一的，通过 cgroups 获得受限的资源能力（图 3.12）。
+
+\begin{ideabox}[Note 3.6：PlanetLab]
+PlanetLab 是云计算流行之前的协作式\textbf{广域集群}：各组织捐出计算机，合计数百节点，构成
+1 层服务器集群，每节点的访问、处理、存储都在本地完成，管理几乎完全分布式（项目 2020 年关闭）。
+每个节点有两个关键组件：\textbf{VMM}（增强型 Linux，支持容器）与
+（Linux）\textbf{Vserver}（本质是运行中的容器）。Vserver 之间严格隔离：不同 Vserver 中进程
+可有相同 user ID 却不意味着同一用户，这极大方便了不同组织用 PlanetLab 做试验床。
+PlanetLab 用 \textbf{slice}（分布在不同节点上的一组 Vserver，可看作经广域网连接的
+\textbf{虚拟服务器集群}）支持实验；\textbf{node manager} 只负责在本节点创建 Vserver 与控制资源分配，
+\textbf{slice creation service（SCS）} 向其申请，而 slice authority 才有资格请求创建 slice。
+资源由 \textbf{rspec} 描述（含时间区间与各类资源），以全局唯一 128 位 \textbf{rcap} 标识。
+容器式虚拟化的一大好处是资源分配简单（可\textbf{超订}与动态分配），这在主存只有几 GB、
+需同时跑数十个容器的节点上至关重要（内存hogging的 Vserver 会被 reset）。类似系统如今以
+EdgeNet 形式运行，容器技术已换成 Docker + Kubernetes。
+\end{ideabox}
+
+\begin{closeread}
+\pair{A container can be thought of a collection of binaries (also called images) that jointly constitute the software environment for running applications.}{容器可以看作一组二进制文件（也称镜像），它们共同构成运行应用所需的软件环境。}
+\pair{In this sense, a container effectively virtualizes the software environment for an application.}{在这个意义上，容器实际上为应用虚拟化了其软件环境。}
+\end{closeread}
+
+\origin{§3.2.2，原书 p.133–138（图 3.12 容器在宿主环境中的组织、图 3.13 PlanetLab 节点、图 3.14 PlanetLab slice）}
+
+\subsection*{3.2.3 虚拟机与容器之比较（Comparing virtual machines and containers）}
+自 Docker 让容器流行以来，“虚拟机还是容器更好”的争论不断，且常因术语误用
+（“轻量容器 vs 重量虚拟机”暗示重即慢）而失焦。本节只看一个具体而重要的方面：\textbf{性能}；
+可移植性留到代码迁移处再谈。衡量性能需多维度：CPU、内存、各类 I/O（磁盘、网络），还要问
+\textbf{用什么负载/基准}来比较。Sharma 等（2016）系统比较了 Linux 容器（LXC）与 Linux 虚拟机
+（KVM）：基线情形下容器略优，但差距不大，\textbf{唯 I/O 例外}——虚拟机明显不如容器，
+这不奇怪，尤其传统 I/O 中操作系统发挥关键作用（要执行大量特权指令）。van Rijn 与
+Rellermeyer（2021）进一步表明，两者的差异常\textbf{近乎可忽略}，连磁盘与网络 I/O 也是；
+原因之一是宿主 OS 把结果缓存在主存里，很多后续 I/O 其实作用于内存数据（这既让基准测试更难，
+也更贴近真实应用行为）。运行 mysql 等应用级基准时差异可能存在但可以很小。总体结论仍是：
+\textbf{虚拟机相对容器确实引入更多开销}。再看多应用并排的场景，问题变成“一个应用对另一个应用
+的性能影响有多大”，即调度资源的能力：总体趋势是\textbf{容器化更难隔离独立应用，而虚拟机在
+CPU 调度与磁盘性能上处理得更好}。近年改进很多，虚拟化技术已没有理由显著慢于直接在宿主 OS
+上运行应用。
+
+\begin{closeread}
+\pair{Nevertheless, depending on the actual I/O behavior, the overall conclusion is that virtual machines do impose more overhead in comparison to containers.}{不过，取决于实际 I/O 行为，总体结论是：虚拟机相对于容器确实施加了更多开销。}
+\pair{the general trend is that containerization has more difficulty isolating independent applications and that scheduling for CPU usage as well as for disk performance is handled better through virtual machines.}{总体趋势是：容器化更难隔离相互独立的应用，而在 CPU 使用与磁盘性能的调度上，虚拟机处理得更好。}
+\end{closeread}
+
+\origin{§3.2.3，原书 p.138–139}
+
+\subsection*{3.2.4 虚拟机在分布式系统中的应用（Application of virtual machines to distributed systems）}
+从分布式系统看，虚拟化最重要的应用是\textbf{云计算}。云厂商大致提供三类服务：
+\textbf{IaaS}（基础设施）、\textbf{PaaS}（系统级服务）、\textbf{SaaS}（实际应用）。
+\textbf{虚拟化在 IaaS 中起关键作用}：厂商出租的不是物理机，而是虚拟机（监视器），
+可能与其他客户共享物理机；巧妙之处在于客户之间几乎完全隔离，会以为自己租到了一台专用物理机。
+但隔离绝非彻底——物理资源毕竟共享，会带来可观察的性能下降。以 Amazon EC2 为例：
+可创建由多台联网虚拟服务器组成的环境，构成分布式系统的基础；提供大量预配置
+\textbf{Amazon Machine Image（AMI）}（操作系统内核加若干服务，如 LAMP 镜像 = Linux 内核 +
+Apache + MySQL + PHP），本质类似启动盘（但有若干重要差异）。客户选好/改好 AMI 后启动，
+得到 \textbf{EC2 instance}：托管应用的实际虚拟机。客户几乎永远不知道实例跑在哪台物理机上，
+只能选 Amazon 给的少数区域（US、南美、欧洲、亚洲）。每个实例有两个 IP：私有地址供实例间内部
+通信，公有地址让任意 Internet 客户端可达，二者用标准 \textbf{NAT} 映射；用 SSH 管理实例，
+密钥由 Amazon 生成。EC2 环境可配置 CPU（核数与类型，含 GPU）、内存、存储、平台（32/64 位）、
+网络带宽等。实例自带本地存储是\textbf{瞬态}的：实例停止即丢失；要防丢失需显式存到
+\textbf{S3}，或挂载映射到 \textbf{EBS} 的存储设备（像挂一块额外硬盘，数据持久，且可重新挂到
+其他实例）。可见 EC2 之类的 IaaS 让客户能配置由联网虚拟服务器构成的完整分布式系统、
+运行自备的分布式应用，且无需维护任何物理机——\textbf{完全可以认为虚拟化是现代云计算的核心}。
+
+\begin{closeread}
+\pair{Virtualization plays a key role in IaaS.}{虚拟化在 IaaS 中扮演关键角色。}
+\pair{One can indeed argue that virtualization lies at the core of modern cloud computing.}{确实可以说，虚拟化位于现代云计算的核心。}
+\end{closeread}
+
+\origin{§3.2.4，原书 p.139–140}
+
+\sechead{3.3 Clients}{客户端}
+
+前面讨论过客户端-服务器模型与二者交互。本节先解剖\textbf{客户端}，下一节解剖服务器。
+
+\subsection*{3.3.1 网络化用户界面（Networked user interfaces）}
+客户端机器的首要任务是让用户与远程服务器交互。方式大致两种。其一：为每个远程服务在客户端
+配一个能通过网络联系该服务的\textbf{对等件}，由\textbf{应用层协议}处理同步（图 3.15a），
+如智能手机上要与远程共享日历同步的日历应用。其二：只提供\textbf{便利的用户界面}、直接访问远程
+服务，客户端机器仅作终端、无需本地存储，得到应用无关的方案（图 3.15b）——
+即\textbf{网络化用户界面}：一切都在服务器处理与存储。随着 Internet 连接与移动设备普及，
+这种\textbf{瘦客户端（thin-client）}方式备受关注，也因便于系统管理而流行。
+
+\medskip\noindent 最古老且仍在广泛使用的网络化用户界面之一是 \textbf{X Window System}（简称 X），
+用于控制位图终端（显示器、键盘、指点设备），也支持平板/手机的触摸屏，可视为操作系统中控制终端的
+那部分。其核心是 \textbf{X kernel}，含全部终端相关设备驱动，因而高度依赖硬件；它提供控制屏幕、
+采集键盘鼠标事件等较低层接口，经名为 \textbf{Xlib} 的库开放给应用（图 3.16，Xlib 很少被直接使用，
+应用通常用其上的 toolkit）。X 的有趣之处在于 X kernel 与 X 应用\textbf{不必同机}：X 提供
+\textbf{X protocol}，让 Xlib 实例与 X kernel 交换数据与事件（可请求创建/杀死窗口、设颜色、
+定义光标等；X kernel 则把本地事件以事件包回送 Xlib）。多个应用可同时与 X kernel 通信，
+其中\textbf{window manager} 有特殊权限，决定显示的“观感”（窗口如何加按钮装饰、如何摆放等），
+其他应用须遵守，故应用与 X 终端间的大量交互被经 window manager 重定向。有趣的是，
+X kernel 接收（可能远程的）应用操纵显示的请求，因此它在语义上充当\textbf{服务器}、应用是
+\textbf{客户端}——术语正确但易混淆。
+
+\medskip\noindent\textbf{瘦客户端网络计算}：X 应用原则上应把应用逻辑与用户界面命令分离，
+但正如 Lai 与 Nieh（2002）报告，实践中二者常紧密耦合，导致应用发出大量请求、且要等响应才能继续，
+在长延迟广域网上会严重影响性能。解决办法之一是重做 X protocol 实现，如 \textbf{NX}
+（Pinzari 2003）：把消息分为作标识符的固定部分与可变部分，同标识符的消息常含相似数据，
+于是只发相同标识符消息间的\textbf{差异}，收发双方维护标识符即可在接收端解码，
+报告带宽下降最多达 1000 倍，使 X 能在 9600 kbps 的低带宽链路上运行。另一方向是让应用
+\textbf{完全控制远程显示}直至像素级（控制远程桌面），把位图变化发到显示端写入本地帧缓冲：
+著名例子是 \textbf{VNC}（Richardson 等 1998）。显然这需要精妙的编码技术，否则带宽成问题
+——例如 320×240、每像素 24 位、30 帧/秒的视频，无高效编码约需 53 Mbps；
+实践中用多种编码，最佳选择通常依应用而定。
+
+\begin{closeread}
+\pair{A major task of client machines is to provide the means for users to interact with remote servers.}{客户端机器的一项主要任务，是提供让用户与远程服务器交互的手段。}
+\pair{In the case of networked user interfaces, everything is processed and stored at the server.}{在网络化用户界面的情形下，一切都在服务器端处理与存储。}
+\end{closeread}
+
+\origin{§3.3.1，原书 p.141–144（图 3.15 两种交互方式、图 3.16 X Window System 组织）}
+
+\subsection*{3.3.2 虚拟桌面环境（Virtual desktop environment）}
+随云计算成熟、云应用增多，把云真正变成终端用户的\textbf{虚拟桌面环境}变得合宜，只差客户端
+软件。最早的提供者之一是 Google 的 \textbf{Chrome OS}：让浏览器充当本地桌面界面，
+旁边可运行多个独立应用，各自原则上最终与云端对等件协作——这与现代智能手机颇为相似。
+随应用日益转为浏览器扩展，\textbf{浏览器正在接替操作系统用户界面的角色}。
+
+\medskip\noindent\textbf{Chrome 浏览器解剖}：Chrome 有超 2500 万行代码（与 Linux 内核相当），
+其工作概览见图 3.17。核心是 \textbf{resource loader}，负责从 Web 服务器取内容：一般先取 HTML，
+再\textbf{并行}为页面引用的其他素材建立连接，这通常由独立线程完成；它需部分解析 HTML 才能发现
+还要取什么，而大部分解析由另一组件完成，构造 \textbf{Document Object Model（DOM）}——
+HTML 的树表示。\textbf{样式（styling）}信息来自单独文档（如每个段落的颜色与字体），
+解析后并入 DOM，得到 \textbf{render tree}，其中含下一步所需的全部信息：
+确定各元素将显示在何处（计算几何区域、断行位置，还要考虑语言特有的左右/右左书写，如
+希伯来语、阿拉伯语；断行需精确计算、考虑字体特性）——遇浮动图片或多栏时布局会相当复杂。
+布局确定后，\textbf{painting} 组件据布局指令构造一组绘制操作（如
+\texttt{drawRectangle(x,y,height,width)}），随后由 \textbf{rasterization} 填充每个像素的细节
+（尤其颜色），并据 painting 提供的信息正确显示嵌入图片。图 3.17 未明示的是 DOM 实际被分解为
+若干层、每层分别光栅化，最后\textbf{合成（compositing）}成可显示的最终图像，合成器还可与
+正在滚动的用户交互。最后，每个浏览器都有处理\textbf{脚本}的独立组件：客户端常用 JavaScript，
+也日益出现 \textbf{WebAssembly}（结合真正编译时，性能可接近原生代码），生成代码始终受浏览器
+权限约束，因而（相对）安全——能在浏览器里跑代码正是“让用户以为自己在本地桌面上运行应用”
+的关键。显然整个渲染高度复杂，其中很多环节（如逐层光栅化）可并行、甚至可交给 GPU，
+现代浏览器正是如此：生成线程与进程，既为组织这庞杂软件，也为让渲染整体高效。
+事实上，浏览器还用\textbf{进程}互相保护代码：Chrome 把整个渲染放在独立进程
+（HTML 解析、样式、布局、painting、合成合在一起），光栅化单独拆出以利用可能存在的 GPU，
+它与主进程通过\textbf{消息传递}通信；\textbf{每个浏览器标签有自己的 renderer 进程}，
+且每个 renderer 跑在独立的 \textbf{sandbox} 中——一种阻止其直接与底层操作系统通信的保护机制
+（讨论移动代码时会再谈）。
+
+\medskip\noindent\textbf{浏览器与应用}：有浏览器往往足以提供虚拟桌面环境，关键是浏览器能执行脚本
+作为远程应用在客户端的那部分，从而大体营造“在本地机器上工作”的错觉——这正是 Chrome OS 提供的。
+但当本地资源确实必要时（首先是相机、麦克风、扬声器等媒体资源），事情会复杂些，
+许多 Web 应用会请求用户授权。也可以在本机\textbf{原生}运行应用，现代智能手机就是如此：
+原生应用（也叫 mobile app）像其他本地应用一样运行，其主要优势是原则上可离线工作，
+但看看有多少移动 app 在无网络时仍有用，就知离线并非默认假设。一个逐渐兴起的做法是
+\textbf{Progressive Web App（PWA）}：以浏览器为宿主环境、却表现得像普通移动 app，
+本质是把不依赖（高质量）网络的服务器端内容移到客户端并缓存，从而跑得更快、可与原生 app 相当，
+且因需与服务器通信的量大减，网络质量差时也能很好工作。总体看，虚拟桌面环境正从极瘦客户端
+走向承载更多功能、且把 Internet 通信高度优化的方向；相比主要本地安装应用的
+\textbf{胖客户端}，其最大优势是管理更容易：服务器可按需向客户端上传新部件。
+
+\begin{closeread}
+\pair{With an increasing trend to transform applications to browser extensions, we can see that the browser is taking over the role of an operating system's user interface.}{随着应用日益被改造为浏览器扩展，我们可以看到浏览器正在接替操作系统用户界面的角色。}
+\pair{Moreover, every browser tab gets its own renderer process. To improve security, each renderer is running in a separate sandbox: a protection mechanism that precludes direct communication with the underlying operating system.}{此外，每个浏览器标签都有自己的 renderer 进程。为提升安全性，每个 renderer 都运行在独立的 sandbox 中——一种阻止其与底层操作系统直接通信的保护机制。}
+\end{closeread}
+
+\origin{§3.3.2，原书 p.144–148（图 3.17 Chrome 渲染页面概览）}
+
+\subsection*{3.3.3 面向分布透明的客户端软件（Client-side software for distribution transparency）}
+客户端软件不止用户界面：客户端-服务器应用的处理层与数据层也常有部分在客户端执行。
+特殊一类是\textbf{嵌入式客户端软件}（ATM、收银机、条码阅读器、电视机顶盒等），此时用户界面只占
+很小一部分，本地处理与通信设施才是大头。除界面与应用相关软件外，客户端软件还含实现
+\textbf{分布透明}的组件。理想情况下，客户端\textbf{不应察觉}自己在与远程进程通信；
+而服务器出于性能与正确性考虑，分布往往对其不那么透明。
+
+\begin{itemize}
+  \item \textbf{访问透明（access transparency）}：通常由\textbf{接口定义}生成
+        \textbf{client stub} 来处理。stub 提供与服务器相同的接口，但隐藏机器架构差异与实际通信，
+        把本地调用转成发给服务器的消息，并把服务器消息转回调用者期望的返回值。
+  \item \textbf{位置/迁移/重定位透明}：关键是\textbf{方便的命名系统}，客户端软件与命名系统协作很重要。
+        例如客户端已绑定某服务器时，可被直接告知服务器换了位置，中间件即可对用户隐藏服务器当前
+        网络位置、必要时透明地重新绑定，最坏也只是客户端应用注意到临时性能下降。
+  \item \textbf{复制透明（replication transparency）}：许多系统用客户端方案实现。若有复制服务器，
+        可把请求转发给每个副本（图 3.18），由客户端软件透明地收集全部响应、向应用只交一个响应。
+  \item \textbf{失败透明（failure transparency）}：掩盖与服务器的通信失败通常由客户端中间件完成，
+        例如反复尝试连接、或数次失败后改试另一服务器；甚至有如 Web 浏览器连接失败时返回上次会话
+        缓存数据的情形。
+  \item \textbf{并发透明}：可由特殊的中介服务器（尤其\textbf{事务监视器}）处理，对客户端软件
+        的依赖较少。
+\end{itemize}
+
+\begin{closeread}
+\pair{Ideally, a client should not be aware that it is communicating with remote processes.}{理想情况下，客户端不应察觉到自己在与远程进程通信。}
+\pair{Access transparency is generally handled through the generation of a client stub from an interface definition of what the server has to offer.}{访问透明通常通过从“服务器所提供的接口定义”生成 client stub 来处理。}
+\end{closeread}
+
+\origin{§3.3.3，原书 p.147–148（图 3.18 用客户端方案实现服务器复制的透明）}
+
+\sechead{3.4 Servers}{服务器}
+
+\textbf{服务器}是代表一组客户端实现特定服务的进程。本质上，每个服务器的组织方式相同：
+等待客户端到来的请求，确保请求被处理，然后等待下一个请求。
+
+\subsection*{3.4.1 通用设计问题（General design issues）}
+\textbf{迭代式 vs 并发式}：\textbf{迭代服务器（iterative server）}自己处理请求、必要时返回响应；
+\textbf{并发服务器（concurrent server）}不自己处理，而是交给独立线程或另一进程，随即去等下一个请求
+（多线程服务器即一例；也可为每个请求 \texttt{fork} 新进程，许多 Unix 系统如此）。
+处理请求的线程/进程负责向客户端返回响应。
+
+\medskip\noindent\textbf{客户端在哪里联系服务器：端点}。客户端总把请求发到服务器所在机器的
+\textbf{端点（end point，也叫端口）}，每个服务器监听一个特定端点。客户端如何知道端点？
+其一，为知名服务全局分配端点（如 FTP 用 TCP 21、HTTP 用 TCP 80），由 IANA 分配并记录，
+此时客户端只需找到服务器的网络地址，可用\textbf{命名服务}。其二，很多服务不需预分配端点
+（如时间服务由本地 OS 动态分配），客户端须先查端点：一种做法是在每台运行服务器的机器上放一个
+\textbf{daemon}，它掌握同机各服务的当前端点、自身监听一个知名端点，客户端先问 daemon 再联系具体
+服务器（图 3.19a）。把一个端点关联到一个具体服务很常见，但为每个服务各实现一个服务器可能浪费资源
+——Unix 上常有很多服务器在被动等待。更高效的是让单个 \textbf{superserver} 监听每个服务对应的端点
+（图 3.19b）：如 Unix 的 \texttt{inetd} 监听一批知名端口，请求到达时 \texttt{fork} 一个进程处理，
+处理完即退出。
+
+\medskip\noindent\textbf{中断服务器}：用户刚上传大文件却突然发现传错了，想中断以取消后续传输。
+做法之一（在今天的 Internet 上“太灵了”，有时是唯一选择）是粗暴退出客户端应用
+（自动断开连接）、立即重启、装作什么都没发生，服务器最终会拆掉旧连接、以为客户端崩了。
+更好的做法是让客户端与服务器支持\textbf{带外数据（out-of-band data）}——需先于该客户端其他数据
+被处理。一种解法是让服务器额外监听一个\textbf{控制端点}接收带外数据，同时以较低优先级监听正常数据
+端点；另一种是在同一连接上发送带外数据，如 TCP 可传\textbf{紧急数据（urgent data）}，
+服务器收到时被中断（如 Unix 中的信号），进而检视并相应处理。
+
+\medskip\noindent\textbf{无状态 vs 有状态服务器}。\textbf{无状态服务器（stateless server）}不保存
+客户端状态信息，且可改变自身状态而无需通知任何客户端。Web 服务器即无状态：只响应到来的 HTTP 请求
+（上传或（多数时候）取文件），处理完就彻底忘记客户端；它管理的文件集合也可变更而无需告知客户端。
+注意：很多无状态设计其实也维护客户端信息，但关键在于\textbf{这些信息若丢失不会导致服务中断}
+（如 Web 服务器记录全部请求日志，丢了顶多性能次优）。一种特殊形式是\textbf{soft state}：
+服务器承诺代表客户端维护状态，但只限于\textbf{有限时间}，过期即回落到默认行为、丢弃该状态
+（如承诺在一段时间内通知客户端更新，之后客户端须轮询），源于计算机网络协议设计。
+相反，\textbf{有状态服务器（stateful server）}一般维护客户端的\textbf{持久信息}，须由服务器显式删除：
+典型是允许客户端保留文件本地副本（甚至用于更新）的文件服务器，它维护 (client, file) 表，
+从而掌握谁对哪个文件有更新权限、可能还有该文件最新版本。这能改善客户端感知的读写性能，
+但缺点明显：服务器崩溃后必须恢复整张表、乃至崩溃前的\textbf{整个状态}，否则无法保证处理了最新更新；
+恢复带来相当复杂度（见第 8 章）。而无状态设计下，崩溃的服务器无需任何特殊措施，重启再等服务即可。
+Ling 等（2004）主张区分（临时的）\textbf{session state} 与\textbf{permanent state}：
+前者关联单个用户的一系列操作、应维持一段时间但非无限，常见于三层架构（应用服务器需对数据库服务器
+做一连串查询才能响应客户端）；只要客户端能重发原请求，丢失 session state 就无实质危害，
+故可用更简单、可靠性较低的方式存储。permanent state 则是数据库中维护的信息（客户信息、已购软件密钥等）。
+但对多数分布式系统，维护 session state 已意味着有状态设计，需在失败时采取特殊措施、并对状态持久性
+作出显式假设。设计时，无状态/有状态的选择\textbf{不应影响服务器提供的服务}：如文件须先打开才能读写，
+无状态服务器就得设法模仿——常见做法是收到读写请求时先打开文件、执行操作、立即关闭。
+有时服务器想记录客户端行为以更好地响应（如 Web 服务器把客户端直接引到其常访页面），
+无状态时常用解法是让客户端随请求附带此前访问信息；Web 里这由浏览器透明地存在
+\textbf{cookie} 中（一小段客户端特定数据），cookie 从不被执行、只被存储并在下次访问时随请求发出：
+首次访问时服务器随所请求页面回送 cookie，浏览器收好，此后每次访问该服务器都带上它。
+
+\begin{closeread}
+\pair{A stateless server does not keep information on the state of its clients, and can change its own state without having to inform any client}{无状态服务器不保存其客户端的状态信息，并且可以改变自身状态而无需通知任何客户端。}
+\pair{In contrast, a stateful server generally maintains persistent information on its clients.}{相反，有状态服务器一般会维护关于其客户端的持久信息。}
+\pair{In the case of an iterative server, the server itself handles the request and, if necessary, returns a response to the requesting client.}{就迭代服务器而言，服务器自己处理请求，并在必要时向发出请求的客户端返回响应。}
+\end{closeread}
+
+\origin{§3.4.1，原书 p.148–154（图 3.19 daemon 与 superserver 两种客户端-服务器绑定）}
+
+\subsection*{3.4.2 对象服务器（Object servers）}
+对象服务器与更传统的服务器的重要差别在于：\textbf{对象服务器本身不提供特定服务}，
+具体服务由驻留在服务器中的\textbf{对象}实现；服务器只提供“按远程客户端请求调用本地对象”的手段，
+因此通过增删对象即可轻易改变服务。对象服务器是对象“居住”之处；对象由两部分组成：
+表示其\textbf{状态的数据}与执行其\textbf{方法的代码}，二者是否分离、方法实现是否被多对象共享
+取决于服务器；调用对象的方式也有差异（多线程服务器中可为每个对象分配独立线程，或为每个调用请求
+用一个线程）。要让对象被调用，服务器需知道执行哪段代码、操作哪些数据、是否另起线程等。
+简单做法假定所有对象都一样、调用方式唯一，但通常不灵活、束缚开发者；更好的做法是支持\textbf{多种策略}。
+例如\textbf{transient object}：只在其服务器存在期间存在、甚至更短，如文件的内存只读副本、计算器；
+合理策略是首次调用请求时创建、一旦无客户端绑定即销毁——好处是只在真正需要时占用资源，
+缺点是首次调用需先创建以致耗时，故另一种策略是服务器初始化时创建全部 transient object，
+代价是即便无人用也占资源。类似地，可让每个对象独占自己的内存段（不共享代码与数据），
+当实现不分离代码数据、或出于安全需隔离时有必要，此时服务器需特殊措施或依赖 OS 保证段边界不被侵犯；
+反之可让对象至少\textbf{共享代码}：如同一 class 的对象放在一个数据库里，class 实现只需加载一次，
+请求到达时取该对象状态、执行所请求方法即可。线程策略亦多：最简单是单线程；
+或每个对象一个线程，请求交给负责该对象的线程，忙则暂时排队——好处是对象自动免于并发访问
+（调用都经该对象的单线程串行化），整洁简单；也可为每个调用请求单开线程，此时对象须已自行防并发。
+与“每对象一线程/每方法一线程”无关的选择，是线程\textbf{按需创建还是维护线程池}。
+通常没有唯一最优策略，取决于线程是否可得、性能有多重要等。
+
+\medskip\noindent 关于“如何调用对象”的决定通常称为\textbf{activation policy}，
+强调对象常需先被\textbf{带入}服务器地址空间（即 activated）才能真正被调用。于是需要按策略对对象
+分组的机制，有时称为 \textbf{object adapter}（或 object wrapper），可理解为实现某种 activation policy
+的软件。关键在于 object adapter 是通用组件、只需针对具体策略配置。一个 adapter 可管控一个或多个
+对象；由于服务器须能同时支持需不同 activation policy 的对象，同一服务器中可有多个 adapter。
+调用请求到达服务器后，先被派发到合适的 adapter（图 3.20）。重要观察：adapter 对其所管控对象的
+具体接口\textbf{一无所知}，否则就无法通用；它只需能从调用请求中提取对象引用、进而按特定 policy
+把请求派发到被引用对象。如图 3.20，adapter 不把请求直接交给对象，而是交给该对象的
+\textbf{服务器端 stub（skeleton）}；skeleton 通常由对象接口定义生成，负责解包请求并调用相应方法。
+adapter 可在运行时配置以支持不同策略：如 CORBA 系统中可指定对象在其 adapter 停止后是否继续存在，
+可配置 adapter 生成对象标识符或由应用提供，也可配置为单线程或多线程模式。需强调：对象的实现可能
+（间接）访问数据库或调用特殊库例程，这些细节对 adapter 隐藏——adapter 只与 skeleton 通信；
+因此实际实现可能与语言级（编译期）对象毫无关系。为此通常采用另一术语：
+\textbf{servant} 是“构成对象实现的一段代码”的通用称呼。
+
+\medskip\noindent\textbf{例：Ice 运行时系统}。Ice 部分是为应对商业对象式分布式系统的繁复而生
+（Henning 2004）。Ice 中的对象服务器不过是普通进程，启动时初始化 Ice 运行时；其基础是
+\textbf{communicator}，管理若干基本资源，最重要的是一个\textbf{线程池}，还关联动态分配的内存、
+并提供配置手段（最大消息长度、最大调用重试次数等）。通常一个对象服务器只有一个 communicator；
+当不同应用需完全分离与相互保护时，可在同一进程内建多个 communicator（可能配置不同），
+至少可分离线程池，使一个应用耗尽线程不影响另一个。用 communicator 创建 object adapter
+（图 3.21）：示例中创建并初始化运行时得到 communicator，用其创建 object adapter（令其监听
+TCP 端口 11000），再创建 object1、object2 并以不同名字加入 adapter；adapter 在单一端口上监听，
+却用对象名来调用正确的对象，随后 \texttt{activate} 才真正启动监听线程。客户端为每个服务器端对象
+建立对应 printer 对象，先启服务器再启客户端即可得到预期输出；若把 printer2 关联到 base1，
+printer2 就会被关联到 object1 而非 object2。策略可通过修改 adapter 属性改变，例如指定始终只有
+一个线程、从而串行化对该 adapter 中所有对象的访问。上面的例子把对象在应用创建后加入 adapter，
+意味着 adapter 可能需同时承载很多对象、存在可扩展性问题；替代方案是\textbf{按需动态加载}对象，
+Ice 用特殊的 \textbf{locator} 支持：可视为特殊类型的 servant，当 adapter 收到未显式加入的对象的
+请求时转发给它处理。比如 locator 知道某对象状态存在关系数据库中：对象标识符可能对应记录的主键，
+locator 查该键、取出状态即可继续处理请求。一个 adapter 可加多个 locator（由它跟踪哪些对象标识符
+属于哪个 locator），从而用单个 adapter 支持大量对象，代价是对象（其实是其状态）需在运行时加载，
+但这种动态行为可能让服务器本身相对简单。
+
+\begin{closeread}
+\pair{The important difference between a general object server and other (more traditional) servers is that an object server by itself does not provide a specific service.}{通用对象服务器与其他（更传统的）服务器的重要差别在于：对象服务器本身并不提供某项特定服务。}
+\pair{A servant is the general term for a piece of code that forms the implementation of an object.}{servant 是“构成对象实现的一段代码”的通用称呼。}
+\end{closeread}
+
+\origin{§3.4.2，原书 p.154–159（图 3.20 支持不同 activation policy 的对象服务器、图 3.21 Ice 对象服务器与客户端）}
+
+\subsection*{3.4.3 例：Apache Web 服务器（Example: The Apache Web server）}
+Apache 是\textbf{策略与机制分离}的极好例子，也是极流行的服务器，估计托管约 25\% 的网站。
+它复杂，且文档类型繁多，故须高度可配置、可扩展，同时尽可能独立于平台。
+\textbf{平台无关}靠提供自己的基础运行时环境实现：\textbf{Apache Portable Runtime（APR）}
+是一套库，为文件处理、网络、加锁、线程等提供平台无关接口；扩展 Apache 时只要调用 APR
+而不调用平台特定库，可移植性就大体有保障。从某种角度看，Apache 可视为“完全通用的服务器”、
+为对到来的请求产生响应而定制；当然它有许多隐含依赖与假设，使之主要适合处理 Web 文档请求。
+例如浏览器与服务器用 HTTP 通信，HTTP 几乎总建于 TCP 之上，故 Apache 核心假定所有请求遵循
+基于 TCP 的面向连接方式；UDP 请求不改核心就无法处理。
+
+\medskip\noindent 除此之外，Apache 核心对“请求该如何处理”假设很少，其组织（图 3.22）的基础是
+\textbf{模块（module）}——由一或多个为正确处理请求而应被调用的函数组成。随之有三个问题：
+如何保证函数被调用？如何保证在正确时刻被调用？如何防止函数被调用于其本不该处理的请求？
+第三问最简单：每个函数都会随请求被调用，但若该请求非其所管，函数返回 \texttt{DECLINED} 即可。
+让函数被调用靠 \textbf{hook}——一种函数的占位符；每个函数对应一个 hook，每个模块向核心提供其
+函数的 hook 列表，通过静态或动态链接模块到核心，即建立 hook 与函数的关联。例如有把 URL 转成
+本地文件名的 hook（处理请求时几乎必然要用到），还有写日志、检查客户端身份、检查访问权限、
+检查请求相关 MIME 类型等 hook；如图 3.22，hook 按特定顺序处理，这正是 Apache 强制特定请求处理
+控制流之处。函数间常可独立处理（彼此完全隔离地作用于请求），但未必总是如此，故 Apache 区分若干
+\textbf{阶段（phases）}：挂接函数时须指定其应在整个请求处理流的开始、中间还是结尾被调用；
+若需细粒度控制，还可指定在某模块之前或之后调用。容易看出，开发彼此隔离（实为无状态）的函数
+有助于模块化设计。
+
+\begin{closeread}
+\pair{Fundamental to this organization are modules.}{这一组织方式的基础是模块。}
+\pair{Getting a function to be called at all is handled through a hook, which is a placeholder for a function.}{让一个函数能够被调用，是靠 hook 来处理的，hook 是函数的占位符。}
+\end{closeread}
+
+\origin{§3.4.3，原书 p.159–161（图 3.22 Apache Web 服务器的一般组织）}
+
+\subsection*{3.4.4 服务器集群（Server clusters）}
+\textbf{服务器集群}不过是通过网络连接、每台机器运行一或多个服务器的一组机器；本节先看
+局域网中的常见集群，再看广域集群。
+
+\medskip\noindent\textbf{通用组织}：集群常逻辑上分三层（图 3.23）。第一层是\textbf{（逻辑）交换机}，
+客户端请求经其路由；交换机形态差异很大，如传输层交换机接受入站 TCP 连接请求并转给集群中某台
+服务器，完全不同的例子是接受 HTTP 请求的 Web 服务器，把部分请求转给应用服务器进一步处理、
+稍后收集结果再返回 HTTP 响应。如同任何多层客户端-服务器架构，集群也常含专做应用处理的服务器
+（常为高性能硬件，专供算力）；而企业中所需的算力未必是瓶颈、访问存储才是，故应用也可能只需跑在
+低端机器上。第三层是数据处理服务器，尤其\textbf{文件与数据库服务器}（可能用专为高速磁盘访问
+配置、带大容量服务端缓存的专用机器）。并非所有集群都严格分层：常见每台机器自带本地存储、
+把应用与数据处理合于一个服务器，得到\textbf{两层}架构；如流媒体集群常部署两层架构，每台机器
+充当专用媒体服务器。当集群提供多种服务时，不同机器可运行不同应用服务器，于是交换机必须能区分服务、
+否则无法把请求转发给正确机器——这可能导致某些机器暂时空闲、另一些过载；
+有用的是把服务临时迁移到空闲机器，方案是用\textbf{虚拟机}以便较容易地迁移服务。
+
+\medskip\noindent\textbf{请求派发}：第一层（交换机，亦称 \textbf{front end}）的一个关键设计目标是
+\textbf{隐藏存在多台服务器}这一事实，即远程机器上的客户端应用无需了解集群内部组织；
+这种访问透明总通过\textbf{单一接入点}提供，继而由某种硬件交换机（如专用机器）实现。
+交换机是集群入口，提供单一网络地址；为可扩展与可用，集群可有多个接入点（各由一台专用机器实现），
+此处只考虑单接入点。实践中两类交换机：\textbf{传输层交换机}接受入站 TCP 连接请求并交给某台服务器，
+客户端建立 TCP 连接使请求与响应都经交换机，交换机再与所选服务器建立 TCP 连接、转递请求、
+接受响应并回传——实际上它坐在客户端与所选服务器的 TCP 连接中间，转发 TCP 分段时改写源/目的地址，
+这是 \textbf{网络地址转换（NAT）} 的一种形式。另一类是\textbf{应用层交换机}：顾名思义，
+它检视请求\textbf{内容}而非仅看 TCP 信息，如对 Web 服务器可检视实际 URL，从而可让专用机器处理
+视频/媒体、其他机器处理需特定数据库的请求等。一般而言，交换机越了解请求内容，就越能决定由哪台
+服务器处理；明显缺点是可能比传输层交换机慢，但用合适的软硬件成本可接受——\texttt{nginx}
+即是例证，设计上可处理数千并发连接，被许多站点用作\textbf{反向代理}；Apache 也可配置成
+应用层交换机。
+
+\begin{ideabox}[Note 3.7：TCP handoff]
+在请求派发还较贵的年代，一种简单优雅的做法是 \textbf{TCP handoff}（Hunt 等 1997；Pai 等 1998）：
+交换机把连接\textbf{移交}给所选服务器，使所有响应直接发给客户端、不再经交换机（图 3.24）。
+交换机收到 TCP 连接请求后，先挑出处理该请求的最佳服务器并转发请求包；服务器回送确认，
+但把\textbf{交换机的 IP 地址}写入承载该 TCP 段的 IP 包首部源字段——这一改写是必要的，
+因为客户端在继续执行 TCP 协议、期待来自交换机的应答，而非来自某个它从未听说过的服务器。
+显然 TCP handoff 需操作系统级修改；当响应远大于请求（如 Web 服务器）时尤为有效。
+交换机由此也在负载分配中扮演重要角色：它决定往哪转发，也决定了哪台服务器处理该请求。
+最简单的负载均衡策略是 \textbf{round robin}。但交换机须跟踪把某 TCP 连接交给了哪台服务器、
+至少持续到连接拆除，维护该状态并转递同一连接后续 TCP 分段，反而可能拖慢交换机。
+\end{ideabox}
+
+\medskip\noindent\textbf{广域集群}：PlanetLab（Note 3.6）即广域集群——参与者贡献（相对简单的）机器
+托管容器，并按需“切片”到任意多台机器，此后客户自负其责。今天有更复杂、商业部署的广域集群：
+一是 Amazon、Google 等云厂商管理的多个数据中心，让终端用户构建由散布 Internet 的（可能大量）
+联网虚拟机组成的广域分布式系统，重要动机是提供\textbf{本地性（locality）}——把数据与服务放在
+靠近客户端处（如流媒体：视频服务器离客户端越近，越易提供高质量流），这催生了
+\textbf{内容分发网络（CDN）}。另一种是单一组织把服务器铺到整个 Internet、
+与本地 ISP 协商使用其设施，如 Akamai CDN（2022 年约 40 万台服务器，遍布 1350 个 ISP、
+135 个以上国家）。
+
+\medskip\noindent\textbf{CDN 的一般组织}：以简化的 Akamai 为例（图 3.25）。基本思想是有一个
+\textbf{origin server} 托管某网站及其全部文档，每个文档由含 origin 域名的 URL 引用
+（如 www.example.com）；访问文档需把域名解析为网络地址（由 DNS 完成，第 6 章详述）。
+要让 origin 的内容由 CDN 托管，Akamai 先确保 www.example.com 解析为
+www.example.com.akamai.net，后者指向 Akamai CDN 中的某台 \textbf{edge server}；
+同时把 origin 域名改为 org-www.example.com。客户端先查常规域名，被重定向到 akamai.net
+解析器（第 1 步），解析器查出服务该客户端的最佳 edge server 并返回其网络地址（第 2 步），
+客户端联系该 edge server（第 3 步），它知道 origin 的新名字；若所请求内容不在其缓存中，
+就从 origin 取文档（第 4 步）、缓存并把被请求的文档返回客户端。
+
+\medskip\noindent\textbf{请求派发}：此例已显示客户端\textbf{请求重定向}的重要性。原则上，
+通过恰当重定向，CDN 能掌控客户端感知的性能，也能通过避免把请求发给重载服务器来优化全局性能；
+这类\textbf{自适应重定向策略}可在把系统当前行为信息提供给决策进程后实施。关键问题是重定向对
+客户端是否透明——本质上只有三种技术：TCP handoff（仅适用服务器集群、不能扩展到广域网）、
+\textbf{DNS 重定向}与 \textbf{HTTP 重定向}。DNS 重定向是透明机制，客户端完全不知文档在哪，
+Akamai 的两级重定向即一例；也可直接用 DNS 返回多个地址之一。但它只能作用于整个站点
+（更准确说只在域名层面，单个文档名放不进 DNS 命名空间）。DNS 重定向不完美，原因有二：
+其一，客户端通常经本地 DNS 服务器（充当其代理）联系 DNS，于是用于定位客户端的不是其自身 IP、
+而是本地 DNS 服务器的 IP；Mao 等（2002）表明这可能带来巨大额外通信代价，因为本地 DNS 服务器
+常常并不“本地”，且即便返回多个 edge server 选项，简单地取列表首个（通常如此）也未必最佳。
+其二，取决于解析方案，可能根本不用本地 DNS 服务器的地址；甚至做决定的 DNS 服务器会被
+“请求者其实又是一个居间 DNS 服务器”这一事实所误导，此时本地性意识彻底丧失。尽管如此，
+DNS 重定向仍被广泛部署——至少它实现相对容易且对客户端透明，还无需依赖有位置感知的客户端软件。
+\textbf{HTTP 重定向}则是\textbf{非透明}机制：客户端请求某文档时，可能在 HTTP 响应中收到一个替代
+URL 并被重定向过去；重要的是该 URL 对客户端浏览器可见，用户甚至可能把该 referral URL 收藏，
+从而让重定向策略失效。
+
+\begin{closeread}
+\pair{An important design goal for server clusters is to hide the fact that there are multiple servers.}{服务器集群的一个重要设计目标，是隐藏“存在多台服务器”这一事实。}
+\pair{In practice, we see two types of switches. In the case of transport-layer switches, the switch accepts incoming TCP connection requests, and hands off such connections to one of the servers.}{实践中我们见到两类交换机。就传输层交换机而言，它接受到来的 TCP 连接请求，并把这样的连接转交给其中一台服务器。}
+\end{closeread}
+
+\origin{§3.4.4，原书 p.161–166（图 3.23 三层服务器集群、图 3.24 TCP handoff、图 3.25 Akamai CDN）}
+
+\sechead{3.5 Code migration}{代码迁移}
+
+此前我们主要关心只传数据的分布式系统。但有些场合下传递\textbf{程序}（有时甚至在执行中）
+能简化设计，本节细看\textbf{代码迁移}到底是什么。
+
+\subsection*{3.5.1 迁移代码的理由（Reasons for migrating code）}
+传统上分布式系统的代码迁移采取\textbf{进程迁移（process migration）}形式——把整个进程从一节点
+移到另一节点（Milojicic 等 2000）。把运行中的进程搬到另一台机器既昂贵又棘手，得有充分理由。
+
+\medskip\noindent\textbf{性能}：\textbf{迄今代码迁移最重要的理由一直是性能}。基本想法是：
+把进程从重载机器移到轻载机器可提升系统整体性能；负载常以 CPU 队列长度或利用率等表示。
+但 Milojicic 等在综述中已得出结论：进程迁移早已不再是提升分布式系统的可行选项。
+如今反而是把代码移过去以确保机器充分加载——尤其在数据中心优化能耗时，常迁移整台带应用套件的
+虚拟机到轻载机器以最小化使用节点数；有趣的是，迁移虚拟机虽可能需更多资源，任务本身却远比迁移
+进程简单（见后文）。一般地，由“关于一组机器的任务分配与再分配”做决策的\textbf{负载分配算法}
+在计算密集型系统中很重要。但在许多现代分布式系统中，优化算力不如（例如）尽量\textbf{减少通信}
+来得要紧；加之底层平台与计算机网络异构，靠代码迁移提升性能常基于定性推理而非数学模型。
+举例：客户端-服务器系统中服务器管理巨大数据库，若客户端应用需做大量涉及海量数据的数据库操作，
+\textbf{把客户端应用的一部分送到服务器、只把结果传回网络}可能更好，否则网络会被服务器到客户端的
+数据传输淹没——此时\textbf{代码迁移假定“在数据所在处处理数据”通常是合理的}。同样理由可用于
+把服务器的一部分迁到客户端：如许多交互式数据库应用中，客户端需填表、表随后被转成一连串数据库操作，
+在客户端处理表单、只把填好的表单发给服务器，有时能免去大量小消息穿网，客户端感知到更好性能、
+服务器也少花时间在表单处理与通信上。对智能手机，把代码移到手持设备而非服务器执行，
+可能是同时获得客户端与服务器可接受性能的唯一可行方案（Kumar 等 2013 综述了计算卸载）。
+代码迁移还能通过利用\textbf{并行}提升性能，却避开并行编程常见的繁复：典型如 Web 信息搜索——
+把查询实现成小型的\textbf{移动代理（mobile agent）}、从站点移到站点相当简单，做若干副本各去不同
+站点，可能获得相对单实例的线性加速。不过 Carzaniga 等（2007）指出，移动代理从未成功，
+因为它们相对其他技术并未真正显现明显优势。
+
+\medskip\noindent\textbf{隐私与安全}：把代码移到数据所在处的另一理由关乎\textbf{安全}。
+当下最典型的例子是\textbf{联邦学习（federated learning）}——出于训练机器学习模型（尤其各种
+人工神经网络变体）的需要。简言之，神经网络由若干层节点组成、层间是带权链接；训练阶段通过喂入
+“已知应有输出”的数据逐渐算出权重，系统地调整权重以最小化网络输出与应有输出之差，最终得到模型，
+再用于未知数据。传统做法是把训练数据集中一处、常用专用高性能计算机建模；但这可能意味着敏感数据
+（如个人照片）须交给自己未必信任的组织。此时更好的做法是\textbf{把（部分训练好的）模型送到数据
+所在处、用本地数据继续训练}，得到更新后的模型（权重因新数据而进一步调整）；若多方参与本地训练，
+服务器可收集不同模型、聚合结果、把更新模型返回本地参与者继续训练。这一迭代过程（图 3.26）
+在聚合模型被认为训练充分、可用于实际时停止。必须说，从代码迁移角度看，联邦学习比（例如）
+迁移进程更容易：神经网络涉及的代码相对直白，因而更易被本地参与者接纳。这是个高层视角，
+入门可读 Zhang 等（2021a）；如 Lyu 等（2020）所述，仅做本地训练从隐私与安全角度可能还不够。
+
+\medskip\noindent\textbf{灵活性}：支持代码迁移还有个重要理由——\textbf{灵活性}。构建分布式应用的
+传统做法是把应用切成不同部分、并\textbf{事先决定}各部分在哪执行（这导致了第 2 章讨论的各种多层
+客户端-服务器应用）。但若代码能在机器间移动，就可\textbf{动态配置}分布式系统。例如服务器对文件
+系统实现标准接口、用专有协议让远程客户端访问；通常客户端那侧基于该协议的文件系统接口实现需与客户端
+应用链接，这就要求该软件在客户端应用开发时就已备好。替代方案是让服务器在\textbf{真正必要}时
+（即客户端绑定到服务器时）才提供客户端的实现：客户端动态下载实现、完成必要初始化、随后调用
+服务器（图 3.27；代码仓库一般属服务器一部分）。这种从远程站点动态移动代码的模型要求下载与初始化的
+协议是标准的，且下载的代码能在客户端机器上执行——通常靠在（例如）Web 浏览器内嵌的虚拟机中运行的
+脚本即可。可以说，这种代码迁移形式是\textbf{动态 Web} 成功的关键。动态下载客户端软件的重要优势是：
+客户端无需预装全部软件就能与服务器对话，软件可按需移入、不用时同样丢弃；另一优势是只要接口标准化，
+客户端-服务器协议及其实现可随意更改，而不会影响依赖服务器的既有客户端应用。当然也有缺点，
+最严重的一个（第 9 章讨论）关乎安全：盲目相信下载的代码只实现所宣称的接口、
+却在你未受保护的硬盘上访问、还把最“肥”的部分发到不知道谁手里，未必是好主意；
+所幸保护客户端免受恶意下载代码伤害的方法已被充分理解。
+
+\begin{closeread}
+\pair{By far the most important reason for code migration has always been performance.}{迄今为止，代码迁移最重要的理由一直都是性能。}
+\pair{In this case, code migration is assuming that it generally makes sense to process data close to where those data reside.}{在这种情况下，代码迁移假定：在数据所在之处附近处理数据通常是合理的。}
+\pair{In such cases, a better approach is to bring the (partially) trained model to where the data is, and continue training with that local data.}{在这类情形下，更好的做法是把（部分）训练好的模型带到数据所在之处，并用本地数据继续训练。}
+\end{closeread}
+
+\origin{§3.5.1，原书 p.167–171（图 3.26 联邦学习原理、图 3.27 动态配置客户端与服务器通信）}
+
+\subsection*{3.5.2 代码迁移的模型（Models for code migration）}
+虽名为代码迁移，其涵盖范围远比“只移动代码”丰富。传统上分布式系统的通信关注进程间交换数据，
+而最广义的代码迁移处理的是\textbf{在机器间移动程序、意在让其在目标处执行}；某些情形（如进程迁移）
+还须移动程序的执行状态、待处理信号等环境部分。为理解不同模型，用 Fuggetta 等（1998）的框架：
+一个\textbf{进程由三段组成}——\textbf{code segment}（组成被执行程序的指令集合）、
+\textbf{resource segment}（进程所需外部资源的引用，如文件、打印机、设备、其他进程）、
+\textbf{execution segment}（进程当前执行状态，含私有数据、栈、程序计数器）。
+
+\medskip\noindent 还可区分 \textbf{sender-initiated} 与 \textbf{receiver-initiated} 迁移。
+前者在代码当前所在/执行的机器上发起，典型如向计算服务器上传程序、或向远程数据库服务器发送
+查询（或一批查询）；后者由目标机器发起，Java applet 即一例。receiver-initiated 比 sender-initiated
+更简单：迁移常在客户端与服务器间发生、由客户端发起；而\textbf{安全地上传代码}到服务器
+（sender-initiated 所为）常要求客户端事先在该服务器注册并认证——即服务器须认识其所有客户端，
+因为客户端多半想访问服务器的资源（如磁盘），保护这些资源至关重要；相反，下载代码
+（receiver-initiated）常可匿名进行，且服务器一般不关心客户端资源，向客户端迁移代码只为改善
+客户端性能，故只需保护少数资源（内存、网络连接）。由此得到代码移动的四种范式（图 3.28）：
+\textbf{client-server}、\textbf{remote evaluation}、\textbf{code-on-demand}、
+\textbf{mobile agents}。client-server 下代码、执行状态与资源段都在服务器，执行后一般只改服务器
+执行状态（用星号标记）；sender-initiated 的 remote evaluation 中客户端把代码迁到服务器执行，
+改动服务器执行状态；code-on-demand 是 receiver-initiated，客户端从服务器取得代码，
+其执行改动客户端执行状态并操作客户端资源；mobile agents 通常沿 sender-initiated 路线，
+把代码与执行状态一起从客户端移到服务器，操作双方资源，运行一般导致执行状态被改动。
+
+\medskip\noindent 代码迁移的\textbf{最低要求}是只提供 \textbf{weak mobility}：只传 code segment，
+可能附一些初始化数据。其特征是\textbf{被迁移的程序总是重新开始}（如 Java applet 从同一初始状态
+启动）——中间件不维护其在原处中断的历史，若需保留历史须由移动应用自身编码。弱移动的好处是简单，
+只要求目标机器能执行该 code segment，本质即让代码可移植（异构系统处再谈）。
+相反，支持 \textbf{strong mobility} 的系统可\textbf{连同 execution segment 一起迁移}：
+其特征是运行中的进程可被停止、移到另一台机器、并从离开处\textbf{精确恢复执行}。
+强移动远比弱移动通用，却也难实现得多：迁移进程时 execution segment 常含高度依赖特定 OS 实现的
+数据（如依赖 OS 进程表信息），故即便迁到同族 OS 也可能麻烦不断。对弱移动而言，迁移代码由
+\textbf{目标进程}执行还是另起进程也有差别：如 Java applet 由浏览器下载、在浏览器地址空间执行，
+好处是无需另起进程、避免目标机器的进程间通信，主要缺点显然是要保护目标进程免受恶意或不当代码执行
+——这本身就可能是把迁移代码隔离到独立进程的充分理由。除移动运行进程（进程迁移）外，
+强移动也可由\textbf{远程克隆（remote cloning）}支持：与进程迁移不同，克隆产生原进程的\textbf{精确
+副本}、运行在另一台机器上，且与原进程\textbf{并行}执行。Unix 中远程克隆靠 \texttt{fork} 出子进程、
+让子进程在远程机器上继续。克隆的好处是模型与许多应用已在用的模型很像，唯一差别是克隆进程在另一台
+机器执行，故\textbf{以克隆实现的迁移是提升分布透明的一种简单办法}。
+
+\begin{closeread}
+\pair{The bare minimum for code migration is to provide only weak mobility.}{代码迁移的最低要求，是只提供弱移动性（weak mobility）。}
+\pair{The characteristic feature of strong mobility is that a running process can be stopped, subsequently moved to another machine, and then resume execution exactly where it left off.}{强移动性的标志性特征是：运行中的进程可以被停止、随后移到另一台机器，然后从它离开之处精确地恢复执行。}
+\pair{In contrast to process migration, cloning yields an exact copy of the original process, but now running on a different machine.}{与进程迁移相反，克隆产生原进程的精确副本，只不过现在运行在另一台机器上。}
+\end{closeread}
+
+\origin{§3.5.2，原书 p.171–174（图 3.28 代码移动的四种范式）}
+
+\subsection*{3.5.3 异构系统中的迁移（Migration in heterogeneous systems）}
+此前我们默认为迁移代码能在目标机器轻易执行——这适用于\textbf{同构}系统；但分布式系统通常
+建立在异构平台集合上，各有自己的操作系统与机器架构。异构带来的问题在许多方面与
+\textbf{可移植性}问题相同，解法也相似：如 1970 年代末，缓解 Pascal 向不同机器移植困难的一个简单
+办法是为\textbf{抽象虚拟机}生成机器无关的\textbf{中间代码}（Barron 1981）——该虚拟机需在众多平台
+实现，但此后 Pascal 程序便可到处运行；尽管此想法被用了些年，却从未真正成为其他语言（尤其 C）
+可移植性问题的通用解法。约 25 年后，异构系统中的代码迁移靠\textbf{脚本语言}与\textbf{高度可移植的
+语言}（如 Java、Python）应对，本质上采用与移植 Pascal 相同的办法，共同点是依赖一个
+\textbf{（进程）虚拟机}——要么直接解释源代码（脚本语言），要么解释编译器生成的中间代码（Java）。
+“在正确的时间出现在正确的地点”对语言开发者也很重要。后续发展削弱了对编程语言的依赖：
+已提出不仅迁移进程、还迁移\textbf{整个计算环境}的方案，基本思路是把整体环境\textbf{分割
+（compartmentalize）}，让同一部分中的进程对自己所处的计算环境有各自的视图，这种分割以
+“运行操作系统与应用套件的虚拟机监视器”形式实现。借助\textbf{虚拟机迁移}，可把计算环境与底层系统
+解耦并真正迁到另一台机器（Medina \& Garcia 2014；Zhang 等 2018 综述了虚拟机迁移机制）。
+其主要优势是\textbf{进程可对迁移本身一无所知}：既不必被打断执行，也不应遇到所用资源的问题——
+后者要么随进程一起迁移，要么进程访问资源的方式保持不变（至少对该进程而言）。例如 Clark 等（2005）
+聚焦虚拟化操作系统的\textbf{实时迁移}，这在靠单一共享局域网紧密耦合的服务器集群中很方便；
+此情形下迁移有两大问题：迁移整个\textbf{内存镜像}与迁移对\textbf{本地资源的绑定}。对前者，
+原则上可三种方式（可组合）：其一，把内存页推到新机器、并重发迁移过程中被修改的页；
+其二，停止当前虚拟机、迁移内存、在新机器启动新虚拟机；其三，让新虚拟机按需拉取新页，
+即让进程立即在新虚拟机上开始、按需复制内存页。第二种若迁移的是提供连续服务的\textbf{live service}，
+可能导致无法接受的停机；而第三种纯按需方式可能大幅延长迁移期，也可能因进程\textbf{工作集}迟迟
+未移到新机器而导致性能差。作为替代，Clark 等（2005）提出 \textbf{pre-copy} 方式，结合第一种与
+第二种的短暂 \textbf{stop-and-copy} 阶段——事实证明这种组合可实现非常低的服务停机时间。
+关于本地资源，在只处理集群服务器时会简化：因是单一网络，只需宣告新的“网络到 MAC 地址”绑定，
+客户端即可在正确的网络接口联系被迁移进程；若还能假定存储作为独立一层提供（如图 3.23），
+则迁移对文件的绑定同样简单，实际只是重建立网络连接。把虚拟机迁到另一个数据中心则更棘手：
+内存传输大体如前，但确实须把文件传到目标数据中心；网络连通性也稍麻烦——无论如何，
+客户端须能在虚拟机迁移\textbf{期间与之后}继续联系它。Zhang 等（2018）提及多种解法，
+本质多归为两类：用隧道等技术把本地网络延伸到目标，或采用支持\textbf{透明重新分配网络地址}的技术
+（即客户端用动态重绑定到实际网络地址）。
+
+\begin{closeread}
+\pair{With virtual machine migration, it becomes possible to decouple a computing environment from the underlying system and actually migrate it to another machine}{借助虚拟机迁移，可以把计算环境与底层系统解耦，并真正将其迁移到另一台机器上。}
+\pair{As an alternative, Clark et al. [2005] propose to use a pre-copy approach which combines the first option, along with a brief stop-and-copy phase as represented by the second option.}{作为替代，Clark 等人（2005）提出采用 pre-copy 方式，它把第一种选项与第二种选项所代表的短暂 stop-and-copy 阶段结合起来。}
+\end{closeread}
+
+\origin{§3.5.3，原书 p.174–176（图 3.29 迁移虚拟机时服务的响应时间变化）}
+
+\sechead{3.6 Summary}{小结}
+
+\begin{itemize}
+  \item 进程是分布式系统通信的基础；关键在于进程\textbf{内部如何组织}，尤其是否支持多线程。
+  \item 线程在分布式系统中特别有用，因为它能在执行阻塞 I/O 时继续使用 CPU，从而构建高度高效、
+        并行运行多个线程的服务器；\textbf{性能攸关时，线程优于进程}。
+  \item 虚拟化让用户在自己的操作系统上运行一套应用、并在云中配置完整的虚拟分布式系统；
+        性能接近宿主 OS，除非与其他虚拟机共享或虚拟机受 I/O 限制。容器化是虚拟化的一种特殊形式。
+  \item 客户端进程实现用户界面并力求分布透明（隐藏通信、服务器位置与复制），还部分负责掩盖失败与恢复；
+        虚拟桌面环境日益流行。
+  \item 服务器比客户端更繁复，但设计问题相对少：迭代/并发、无状态/有状态、如何寻址服务与中断服务器等。
+  \item 把服务器组织成集群时要特别小心：常见目标是向外界隐藏集群内部，故多用单一入口点；
+        把它透明地替换为完全分布式方案是挑战。
+  \item 代码迁移的两大理由是提升\textbf{性能}与\textbf{灵活性}；近来\textbf{隐私与安全}（如联邦学习）
+        也成为理由。处理异构性的最佳方案是用虚拟机（进程虚拟机或 VMM）。
+\end{itemize}
+
+\begin{closeread}
+\pair{In general, threads are preferred over the use of processes when performance is at stake.}{一般而言，当性能攸关时，人们更偏好使用线程而非进程。}
+\pair{Virtualization has since long been an important field in computer science, but in the advent of cloud computing has regained tremendous attention.}{虚拟化长期以来一直是计算机科学的重要领域，而在云计算到来之际又重新受到极大关注。}
+\end{closeread}
+
+\origin{§3.6，原书 p.177–179}
+
+\begin{actions}
+  \item 读原书第 3 章，重点看图 3.1（IPC 三次上下文切换）、图 3.6（dispatcher/worker）、
+        图 3.10（进程 VM / 原生 VMM / 宿主式 VMM）、图 3.12（容器组织）、图 3.23（三层集群）、
+        图 3.28（代码移动四范式）。
+  \item 在本机跑一遍书中的 Python 示例（图 3.3/3.4），观察进程与线程在共享变量上的差异；
+        把 \texttt{sleep} 换成忙等待，验证线程被串行化、进程被分到不同核。
+  \item 用 \texttt{unshare --pid --fork --mount-proc bash} 进入新 PID namespace，用 \texttt{ps -ef}
+        观察“自己的 init 进程”，理解容器隔离。
+  \item 对比你所用过的容器与虚拟机：分别测一次磁盘/网络 I/O 基准，验证“容器 I/O 更优、
+        虚拟机调度更好”的趋势是否在你的场景成立。
+  \item 为一个你熟悉的 Web 服务画出去程：客户端一层、交换机/反向代理一层、应用服务器一层、数据库一层，
+        标记哪些是迭代/并发、无状态/有状态。
+  \item 选一个你写的脚本或小应用，判断它属于四种代码移动范式中的哪一种，并说明为什么。
+\end{actions}

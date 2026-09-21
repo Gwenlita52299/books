@@ -1,0 +1,410 @@
+% ============================================================
+%  第 9 章 Security 导读
+% ============================================================
+\chapter{Security}
+\begin{center}
+\begin{minipage}{0.9\textwidth}
+\itshape\small\color{dsgray}
+安全很难，因为它要满足的是一个\textbf{否定的目标}：防止\textbf{一切}未授权行为，
+而“证明做到了”几乎不可能。本章围绕两大机制展开：\textbf{认证}
+（authentication，先确认对方身份）与\textbf{授权}（authorization，再限制其能做的操作）；
+在此之上还涉及\textbf{完整性}与\textbf{机密性}，二者都高度依赖\textbf{密码学}
+（cryptography）。技术之外，设计原则、可信计算基（TCB）、隐私（GDPR），
+以及\textbf{信任}（trust）、\textbf{区块链}、\textbf{监控与入侵检测}都会涉及。
+贯穿全章的主线是：安全必须\textbf{从设计之初就内建}，而非事后补丁。
+\end{minipage}
+\end{center}
+
+\sechead{9.1 Introduction to security}{安全引论}
+
+安全与\textbf{可依赖性}密切相关，但还需加入\textbf{机密性（confidentiality）}
+（信息只向授权方披露）与\textbf{完整性（integrity）}（资产只能被授权方式更改，
+且不准确可被检测与恢复）。威胁分三大类：\textbf{未授权信息披露}、
+\textbf{未授权信息修改}、\textbf{未授权拒绝使用}，分别对应机密性、完整性与可用性。
+构建安全系统不能只喊口号，先要有一份 \textbf{security policy}：精确规定哪些实体
+（用户、服务、数据、机器等）可以做哪些、禁止哪些动作；然后才谈\textbf{security mechanism}
+如何执行策略，共四类：\textbf{加密}（encryption，实现机密性，也支持完整性校验）、
+\textbf{认证}、\textbf{授权}、\textbf{监控与审计}（monitoring and auditing）。
+审计虽不直接提供保护，但对事故分析与威慑攻击者很有用。
+
+\subsection*{9.1.1 安全威胁、策略与机制（Security threats, policies, and mechanisms）}
+一个\textbf{安全策略}精确描述实体被允许与禁止的动作；策略定下后，就可用四类机制去执行它。
+加密是基础：既提供\textbf{机密性}，也能用于检测数据是否被改动，从而支撑\textbf{完整性}。
+认证用于核实用户/客户端/服务器/设备等所声称的身份；认证之后才谈授权
+（如医疗数据库按角色决定读哪些记录、改哪些字段、增删哪些记录）。
+
+\begin{closeread}
+\pair{Confidentiality refers to the property that information is disclosed only to authorized parties.}{机密性指信息只向授权方披露这一性质。}
+\pair{A security policy describes precisely which actions the entities in a system are allowed to take and which ones are prohibited.}{安全策略精确描述了一个系统中的实体被允许采取哪些动作、被禁止采取哪些动作。}
+\end{closeread}
+
+\origin{§9.1.1，原书 p.547–548}
+
+\subsection*{9.1.2 设计问题（Design issues）}
+\textbf{安全原则}（Saltzer \& Schroeder 1975，Smith 2012 总结）：\textbf{fail-safe defaults}
+（默认设置即应提供良好保护，如每台边缘设备出厂带唯一强密码）、\textbf{open design}
+（不搞“security by obscurity”，机制应可公开审查）、\textbf{separation of privilege}
+（关键操作不能由单一实体完全控制，如双人各持一把钥匙）、\textbf{least privilege}
+（进程只持有最少权限，如 Unix 中用 sudo 显式提权）、\textbf{least common mechanism}
+（多个组件需要同一机制时提供同一实现）。另有三条：economy of mechanism、
+complete mediation、psychological acceptability。
+
+\textbf{安全机制的层次}：网络层有 \textbf{VPN}（隧道并加密），传输层有 \textbf{TLS}
+（HTTPS 的基础），操作系统服务层有 \textbf{SSH}（自带安全协议、不依赖传输层安全），
+中间件层有 \textbf{Kerberos}、secure RPC 等，应用层则有端到端安全
+（WhatsApp、Signal、Telegram；或先用客户端加密再上云，如 BoxCryptor）。
+\textbf{可信计算基（TCB）}是“为执行某安全策略所必需且充分、因而必须被信任”的全部安全机制，
+涵盖固件、硬件、软件乃至人；\textbf{TCB 越小越好}。难点在于划分“可信/不可信模块”
+本身就不简单（ownCloud 的脚本集例子），也涉及 \textbf{honest-but-curious}
+这类假设是否被证明成立。\textbf{隐私（privacy）}与机密性相关但不同：
+机密性是“不被未授权披露”，隐私则是 Nissenbaum 所说的“个人信息\textbf{恰当流动}的权利”
+（谁在何时、以何种方式看到，并可停止与撤回）。相关方向有 Solid（个人数据归个人控制）、
+GDPR，以及用 \textbf{shard} 与数据流视角设计可撤回的系统。
+
+\begin{closeread}
+\pair{A TCB is the set of all security mechanisms in a (distributed) computer system that are necessary and sufficient to enforce a security policy, and that thus need to be trusted.}{TCB 是（分布式）计算机系统中为执行某项安全策略所必需且充分、因而必须被信任的全部安全机制之集合。}
+\pair{The smaller the TCB, the better.}{TCB 越小越好。}
+\end{closeread}
+
+\origin{§9.1.2，原书 p.548–554（图 9.1 分层安全机制、图 9.2 GDPR 对数据库的影响）}
+
+\sechead{9.2 Cryptography}{密码学}
+
+发送者 S 把消息 $m$ 加密成不可读的 $m'$（ciphertext），接收者 R 再解密回 $m$。
+用 $C = E_K(P)$ 表示以密钥加密明文 $P$ 得密文 $C$，$P = D_K(C)$ 表示解密。
+加密能对抗三类攻击：拦截/窃听（无密钥则看到不可读数据）、修改（改密文需先解密再正确重加密）、
+插入伪造消息。\commentary{一个常被忽视的元信息：消息“是否在传输”本身有时就有价值。}
+
+\subsection*{9.2.1 基础（Basics）}
+加密与解密由以\textbf{密钥}为参数的密码方法完成。明文记为 $P$、密文记为 $C$，
+$C = E_K(P)$ 与 $P = D_K(C)$ 给出密文/明文/密钥的关系。
+
+\begin{closeread}
+\pair{Encryption and decryption are accomplished by using cryptographic methods parameterized by keys}{加密与解密是通过以密钥为参数的密码学方法来完成的}
+\end{closeread}
+
+\origin{§9.2.1，原书 p.555–556（图 9.3 窃听者与入侵者）}
+
+\subsection*{9.2.2 对称与非对称密码系统（Symmetric and asymmetric cryptosystems）}
+\textbf{对称密码}（secret-key / shared-key）加解密用同一密钥（$K_{A,B}$）；
+\textbf{非对称密码}（public-key）用一对不同密钥，一个公开、一个保密（$PK_A$ / $SK_A$）。
+要让消息保密，用接收者公钥加密（$C = PK_B(m)$）；要证明来源，用发送者私钥加密
+（$C = SK_A(m)$），即数字签名的基础。\textbf{同态加密}（homomorphic encryption）
+使“对明文的数学运算”等价于“对密文的运算”，让不可信服务器能在密文上做计算；
+全同态（FHE）性能太慢，部分同态（PHE）支持加法或乘法、有高效实现。
+Note 9.1 用\textbf{Bloom filter} + 同态加密在城市人流统计中做到了“计数但不追踪个人”。
+
+\begin{closeread}
+\pair{One of the keys in an asymmetric cryptosystem is kept private; the other is made public.}{非对称密码系统中的一把密钥被保密，另一把则被公开。}
+\pair{when using homomorphic encryption, mathematical operations on plaintext can also be performed on the corresponding ciphertext.}{使用同态加密时，对明文所做的数学运算也可以在对应的密文上执行。}
+\end{closeread}
+
+\origin{§9.2.2，原书 p.557–560（Note 9.1 Bloom filter 计数）}
+
+\subsection*{9.2.3 哈希函数（Hash functions）}
+\textbf{哈希函数} $h = H(m)$ 把任意长度消息映射为固定长度位串。密码学哈希
+（trapdoor）三性质：\textbf{单向性}（由 $h$ 求 $m$ 计算上不可行）、
+\textbf{弱抗碰撞}（给定 $m$ 与其 $h$，难找 $m' \neq m$ 使哈希相同）、
+\textbf{强抗碰撞}（仅给定 $H$，难找任意不同 $m, m'$ 使哈希相同）。
+经典应用是存储口令的哈希而非明文。\textbf{数字签名}用消息摘要
+（message digest）降低成本：Alice 计算 $sig = SK_A(H(m))$ 随消息发出；
+Bob 用 Alice 公钥解密摘要并自行计算 $H(m)$，两者相符即确认来自 Alice，
+且 Alice 无法抵赖；代价是私钥泄漏或换钥会让签名失效，可能需要中心权威记录换钥时间。
+
+\begin{closeread}
+\pair{First, they are one-way functions, meaning that it is computationally infeasible to find the input m that corresponds to a known output h.}{首先，它们是单向函数，意味着要找到与已知输出 h 相对应的输入 m 在计算上是不可行的。}
+\end{closeread}
+
+\origin{§9.2.3，原书 p.560–562（图 9.4 记号表）}
+
+\subsection*{9.2.4 密钥管理（Key management）}
+\textbf{密钥建立}：SSH 用 \texttt{ssh-keygen} 生成 (public, private) 密钥对、
+\texttt{ssh-copy-id} 分发公钥；\textbf{会话密钥（session key）}是单次会话的临时共享密钥，
+会话结束即丢弃（长期密钥加解密越多越易被破解）。跨不安全信道建立共享密钥可用
+\textbf{Diffie-Hellman 密钥交换}：双方各自保密 $x$、$y$，交换 $g^x \bmod p$ 与
+$g^y \bmod p$，各自算出 $g^{xy} \bmod p$，而无需公开私密数；实践中常用 ephemeral DH
+（每次会话换密钥）。\textbf{密钥分发}：对称密钥须经\textbf{安全信道}（互相认证 + 机密性）
+或带外（out-of-band）分发；公钥可明文传输但必须经\textbf{认证}信道，
+依靠 \textbf{public-key certificate}（由 \textbf{CA} 用其私钥 $SK_{CA}$ 签名，
+证书 = 公钥 + 标识 + CA 标识 + 签名），客户端用 \textbf{CA} 公钥验签。
+证书需\textbf{撤销}（CRL 或限制有效期，如 Let's Encrypt 自动续期）。
+替代 CA 的是 \textbf{web of trust}（PGP）：人们当面交换并互相签名公钥，
+可给签名加权（需 $k$ 个信任者签名才接受）。
+
+\begin{closeread}
+\pair{establishing and distributing keys is not a trivial matter.}{密钥的建立与分发绝非小事。}
+\pair{An elegant scheme that is widely applied for establishing a shared key across an insecure channel is the Diffie-Hellman key exchange.}{一种被广泛应用、用于在不安全信道上建立共享密钥的优雅方案是 Diffie-Hellman 密钥交换。}
+\end{closeread}
+
+\origin{§9.2.4，原书 p.562–570（图 9.5 DH 交换、图 9.6 不经意传输、图 9.7 密钥分发，Note 9.2 MPC、Note 9.3 证书生命周期）}
+
+\sechead{9.3 Authentication}{认证}
+
+认证是核实某人/某软件/某设备所声称的身份。四种手段：\textbf{知道什么}
+（口令、PIN）、\textbf{拥有什么}（身份证、手机、软件令牌）、\textbf{是什么}
+（静态生物特征，如指纹、面部）、\textbf{做什么}（动态生物特征，如声音、打字节奏）。
+单因子认证只用其一；实践中越来越多用\textbf{多因子认证}。认证通常只在访问开始时做一次，
+但这不足以保证整个会话都是同一客户端（如 Alice 登录后 Bob 借用），
+因此需要\textbf{持续认证（continuous authentication）}，例如用设备位置/邻居信息判断。
+
+\subsection*{9.3.1 认证引论（Introduction to authentication）}
+四种认证手段（know / have / is / does）与多因子、持续认证的关系如上。
+\commentary{认证与\textbf{授权}是两件事：认证回答“你是谁”，授权回答“你能做什么”。}
+
+\begin{closeread}
+\pair{Authentication is used to verify the claimed identity of a user, client, server, host, device, and so on.}{认证用于核实用户、客户端、服务器、主机、设备等所声称的身份。}
+\end{closeread}
+
+\origin{§9.3.1，原书 p.571–572}
+
+\subsection*{9.3.2 认证协议（Authentication protocols）}
+认证与\textbf{消息完整性}不可分割：只认证不保证完整性，或只保证完整性不认证，都无意义。
+\textbf{基于共享密钥}：\textbf{challenge-response}——Bob 发随机挑战 $R_B$，
+Alice 回 $K_{A,B}(R_B)$，Bob 解密见 $R_B$ 即知对方是 Alice；再反向挑战 $R_A$ 实现双向认证。
+把 5 条消息“优化”成 3 条会引入 \textbf{reflection attack}（攻击者 Chuck 让 Bob 替自己
+加密挑战），教训是\textbf{不要给未经认证者泄露加密响应}、双方挑战应不同（发起者用奇数、
+响应者用偶数）。\textbf{密钥分发中心（KDC）}解决可扩展性：$N$ 台主机只需 $N$ 把密钥
+（而非 $N(N-1)/2$）。\textbf{Needham-Schroeder} 协议用 \textbf{nonce}（一次性随机数）
+把消息绑定，防重放；并用 \textbf{ticket}（如 $K_{B,KDC}(K_{A,B})$）让 Alice 自己联系 Bob。
+\textbf{公钥认证}则不需要 KDC，双方持彼此公钥，用挑战-响应建立会话密钥。
+\textbf{会话密钥}的好处：减少长期密钥的使用（“用久易被破”）、防重放、
+泄漏时只影响单个会话。\textbf{Kerberos} 基于 Needham-Schroeder，含
+\textbf{AS}（认证服务器，处理登录）与 \textbf{TGS}（票据授予服务，颁发票据），
+提供\textbf{单点登录（single sign-on）}：登录一次即可访问多个服务。
+\textbf{TLS 1.3} 用 ephemeral Diffie-Hellman 建立共享密钥，
+再由服务器用 CA 签名的证书证明身份，派生应用层密钥。
+
+\begin{closeread}
+\pair{authentication and message integrity cannot do without each other.}{认证与消息完整性二者缺一不可。}
+\pair{This scheme establishes what is known as single sign-on.}{该方案建立了所谓的单点登录。}
+\end{closeread}
+
+\origin{§9.3.2，原书 p.572–584（图 9.8 共享密钥认证、图 9.10 reflection attack、图 9.13 Needham-Schroeder、图 9.16-9.18 Kerberos 与 TLS，Note 9.4-9.5）}
+
+\sechead{9.4 Trust in distributed systems}{分布式系统中的信任}
+
+认证解决“证明你是你”，但证明有多可靠、接收方是否接受，就进入\textbf{信任}的范畴。
+信任也因\textbf{区块链/分布式账本}与\textbf{（半）自动化决策}（尤其机器学习）而更受关注：
+在无法理解决策过程时仍要信任它，是最大的问题。
+
+\subsection*{9.4.1 面对拜占庭失效时的信任（Trust in the face of Byzantine failures）}
+当 P 依赖 Q 且 Q 可能不再符合预期时，信任才成为问题。
+\textbf{Trust} = “一个实体所持有的、关于另一实体会按特定预期执行特定动作的保证”。
+一旦预期被\textbf{显式规定}，也许就不必再谈信任。拜占庭失效模型的妙处正在于：
+可以\textbf{放弃对个体进程的信任}，只要求\textbf{进程组}满足规格——
+$n$ 个进程中至多 $k \le (n-1)/3$ 个作恶，其余仍能达成正确一致；超出则一切作废。
+
+\begin{closeread}
+\pair{Trust is the assurance that one entity holds that another will perform particular actions according to a specific expectation.}{信任是一个实体所持有的保证：另一个实体将按照某个特定预期执行特定动作。}
+\end{closeread}
+
+\origin{§9.4.1，原书 p.586}
+
+\subsection*{9.4.2 信任一个身份（Trusting an identity）}
+在去中心化 P2P 系统中，若不加认证就接受请求，会遭遇 \textbf{Sybil attack}：
+攻击者创建多重身份分别加入系统。它破坏了三条假设：标识对应至多一个实体、
+每个实体至多一个标识、标识永远指向同一实体且不复用。后果可轻可重
+（不转发查询造成 DoS、合谋删掉自己负责的文件、在 web of trust 中批量伪造背书）。
+密切相关的 \textbf{eclipse attack} 用合谋节点不断返回恶意链接，
+使诚实节点的本地列表被污染、从而被“日食”隔离。
+最直接的解法是\textbf{中心化 CA} 或\textbf{信任链}（证书再签名），但链条末端仍需被信任。
+\textbf{区块链}方案让创建多身份\textbf{无利可图}：PoW 需算力竞赛，PoS 需持有代币（stake）。
+另有 \textbf{NetFlow} 记账机制：节点 P 为候选节点 Q 计算容量
+$cap(Q) = \max\{MF(Q,P) - MF(P,Q), 0\}$（最大流之差），
+Sybil 之间互相“刷工作”不会增加总容量，故该机制\textbf{抗 Sybil}。
+
+\begin{closeread}
+\pair{The essence of this attack is that in distributed systems, we generally rely on the fact that when presented with a logical identity, there is just a single associated physical entity.}{这种攻击的本质在于：分布式系统中我们通常依赖这样一个事实——当面对一个逻辑标识时，只有一个与之关联的物理实体。}
+\end{closeread}
+
+\origin{§9.4.2，原书 p.586–591（图 9.19 Sybil 攻击伪码）}
+
+\subsection*{9.4.3 信任一个系统（Trusting a system）}
+区块链“无需可信第三方”的说法要拆开看：\textbf{区块链本身}（只读账本）与
+\textbf{维护它的共识协议}是两回事。保证数据完整性靠\textbf{哈希链}：
+每个块含若干交易与其数据的哈希，该哈希被复制到后继块并作为其后继哈希的输入。
+改动块 $B_i$ 会使 $h_i$ 失效，攻击者须重算 $h_i^*$ 并传播到 $B_{i+1}$、
+进而使 $h_{i+1}$ 失效——\textbf{只有把 $B_i$ 之后的所有块都改掉，攻击才可能成功}，
+而账本已被海量复制，故极难。但\textbf{信任账本}不等于信任整个系统：
+实现是否被正确加固、\textbf{smart contract}（满足条件自动执行的程序）的规格是否符合意图，
+以及面向终端用户的\textbf{中介}（区块链应用的入口服务）是否可信，都仍需信任。
+所以区块链与其他分布式系统在“信任一个系统”上其实有很多共性。
+
+\begin{closeread}
+\pair{an attack can be successful only if all blocks succeeding Bi are modified as well.}{只有当 Bi 之后的所有块都被一并修改时，攻击才可能成功。}
+\end{closeread}
+
+\origin{§9.4.3，原书 p.591–593（图 9.20 区块链原理）}
+
+\sechead{9.5 Authorization}{授权}
+
+认证之后，才谈“实体能否访问资源”。通用模型：\textbf{subject}（代表用户的进程）
+向 \textbf{object}（封装状态、通过接口暴露操作）发请求；保护通常由一个
+\textbf{reference monitor} 执行，它记录“谁可以做什么”，每次对象被调用时都要被查问，
+因此它自身必须\textbf{防篡改（tamperproof）}。
+
+\subsection*{9.5.1 访问控制的一般问题（General issues in access control）}
+保护有三种思路：直接保护\textbf{数据}（完整性约束）、按\textbf{操作}规定谁能做、
+按\textbf{用户}规定谁能访问。策略分四类：\textbf{MAC}（强制访问控制，
+由中央按保密级别分配，如 military 的 public 到 top secret）、\textbf{DAC}（自主访问控制，
+对象拥有者自行设定 read/write/execute，Unix 的 owner/group/world）、
+\textbf{RBAC}（基于角色，如 teacher/student/dean）、\textbf{ABAC}（基于属性，粒度最细）。
+\textbf{访问控制矩阵} $M[s,o]$ 列出 subject $s$ 可对 object $o$ 执行的操作；
+真实系统不会存稠密矩阵，而是\textbf{按列分布}成 \textbf{ACL}（每个对象一张访问列表）
+或\textbf{按行分布}成 \textbf{capability}（每个主体一组能力，可看作票据，需防伪造/转手）。
+\commentary{ACL 让服务器按“你是谁”查表；capability 让客户端带着“凭证”来，
+服务器不必认识你——这与后文的委托（delegation）直接相关。}
+
+\begin{closeread}
+\pair{Controlling the access to an object is all about protecting the object against invocations by subjects that are not allowed to have specific (or even any) of the methods carried out.}{控制对对象的访问，归根结底是保护该对象不被那些不允许执行某些（乃至任何）方法的调用者所调用。}
+\end{closeread}
+
+\origin{§9.5.1，原书 p.593–597（图 9.21 访问控制模型、图 9.22 三种保护思路、图 9.23 ACL 与 capability）}
+
+\subsection*{9.5.2 基于属性的访问控制（Attribute-based access control）}
+\textbf{ABAC} 可视为其他策略的超集，但落地仍面临挑战。属性可分：
+\textbf{用户属性}（姓名、角色、部门……）、\textbf{对象属性}（创建者、修改时间、版本、
+文件类型/大小、内容相关信息）、\textbf{环境属性}（时间、负载、维护状态、存储属性）、
+\textbf{连接属性}（IP、会话时长、带宽、所用安全强度）、\textbf{管理属性}（全局策略）。
+\textbf{Policy Machine} 用 \textbf{assignment}（如 $u \to ua$，产生集合）、
+\textbf{prohibition}（$denied(u, ops, \neg os)$ 表达“除 $os$ 外都禁止”）、
+\textbf{obligation}（事件触发时自动动作，如
+\texttt{when u reads f in fs then denied(u, \{write\}, not fs)} 防止信息泄露）
+来表达规则。它也能模拟 MAC（按安全级别 $OL_i$ 与“读高不能写低”的 obligation）、
+DAC（Unix 的 chmod/chown 语义）与 RBAC（Alice → Teachers）。
+
+\begin{closeread}
+\pair{Attribute-based access control (ABAC) is a powerful access control policy that can viewed as superseding other policies.}{基于属性的访问控制（ABAC）是一种强大的访问控制策略，可被视为对其他策略的取代/超集。}
+\end{closeread}
+
+\origin{§9.5.2，原书 p.598–601}
+
+\subsection*{9.5.3 委托（Delegation）}
+委托（把访问权从一个进程传给另一个）是保护技术中的重要手段，
+可避免大量开销（保护常可本地完成）。最差的做法是直接把用户凭据交给应用；
+更好的做法是使用 \textbf{proxy}——一种令牌，其持有者可拥有与授权者相同或更受限的
+权限与特权，派生 proxy 的权限\textbf{只减不增}。Neuman 的方案把 proxy 分两部分：
+证书 $C = \{R, PK_{proxy}\}$（权利集 + 公钥部分，由 A 签名 $sig(A,C)$ 防篡改）
+与私密部分 $SK_{proxy}$（须保密传输）。持有凭证者须能回答基于 $PK_{proxy}$ 的
+“难题”以证明自己有权。注意 Alice 无需被再次咨询，Bob 可把部分权利转授给 Dave。
+\textbf{OAuth 2.1} 是重要的实用委托框架，含四个角色：\textbf{resource owner}（用户）、
+\textbf{client}（代办应用）、\textbf{resource server}、\textbf{authorization server}；
+流程为客户端注册得 \texttt{cid}，用临时密钥 $S$ 的哈希请求，用户确认后得授权码 \texttt{AC}，
+再换取 \textbf{access token}（AT）。AT 分两种：只是标识符（资源服务器每次找授权服务器核验）
+或\textbf{签名证书}（自带权利、有有效期）。
+
+\begin{closeread}
+\pair{A proxy in the context of security in computer systems is a token that allows its owner to operate with the same or restricted rights and privileges as the subject that granted the token.}{在计算机系统安全的语境中，代理（proxy）是一种令牌，允许其持有者以与授予该令牌的主体相同或受限的权利与特权进行操作。}
+\end{closeread}
+
+\origin{§9.5.3，原书 p.601–605（图 9.24 proxy 结构、图 9.25 委托与证明，Note 9.6 OAuth）}
+
+\subsection*{9.5.4 去中心化授权：一个例子（Decentralized authorization: an example）}
+前面方案多有中心化组件（Kerberos 的 AS/TGS，委托需在授权服务器注册），
+跨\textbf{行政域}扩展时遇到 \textbf{administrative scalability} 问题。
+\textbf{WAVE} 是面向多组织的可扩展去中心化授权服务，核心是
+\textbf{graph-based authorization}：全局有向图，顶点代表能授予/接收权限的实体，
+有向边代表\textbf{委托}（attestation）。B 通过展示“从 A 到 B 的有向路径”来证明其对
+A 所有资源的操作权；用 \textbf{RTree}（resource tree，资源 URI 的首元素标识负责实体）
+组织策略。两个要点：图须以可扩展且去中心化方式存储；委托信息本身也需保护
+（不是全世界都该知道 Alice 给了 Bob 什么权限）。存储须满足四点：
+\textbf{proof of monotonicity}（不可伪造的 append-only 日志）、
+\textbf{proof of inclusion}、\textbf{proof of nonexistence}、\textbf{proof of nonequivocation}
+（对所有客户端呈现同一视图）——这与区块链账本能提供的性质非常接近。
+数据保护用类似 Kerberos 的链式结构，让 C 在 A、B 都无需在线的情况下证明自己有权读文件。
+
+\begin{closeread}
+\pair{Together, these requirements ensure the integrity of the global authorization graph.}{这些要求合在一起，保证了全局授权图的完整性。}
+\end{closeread}
+
+\origin{§9.5.4，原书 p.605–608}
+
+\sechead{9.6 Monitoring}{监控}
+
+光有策略还不够，还需检查策略是否充分、正确实现并被强制执行；因此要跟踪系统中发生了什么
+（记录登录、资源访问等）。被动日志有助于事后分析，但无法在损害造成前阻止。
+本节重点是可检测未授权活动的\textbf{入侵检测（intrusion detection）}。
+
+\subsection*{9.6.1 防火墙（Firewalls）}
+\textbf{防火墙}把系统某部分与外界隔离，所有出（尤其入）包先经特殊机器检查再放行，
+未授权流量被丢弃；防火墙自身必须高度受保护、规则必须自洽。
+两类（常结合）：\textbf{packet-filtering gateway}（像路由器，按包头源/目的地址决定放行，
+可保护内网 Web 服务器、或让多 LAN 只接受来自其他 LAN 的流量从而构成 VPN）、
+\textbf{application-level gateway}（检查消息内容，如邮件网关按大小过滤、过滤垃圾邮件、
+只给外部用户提供文摘的图书馆网关）；特殊形式是 \textbf{proxy gateway}
+（如 Web 代理，过滤/改写含可执行代码的页面）。局限：防火墙只看网络流量，
+不擅长认证/授权具体资源；一旦攻击者绕过规则或被接管账户，防火墙形同虚设。
+
+\begin{closeread}
+\pair{Essentially, a firewall disconnects any part of a distributed system from the outside world}{本质上，防火墙把分布式系统的任一部分与外部世界隔离开来}
+\end{closeread}
+
+\origin{§9.6.1，原书 p.609–611（图 9.26 防火墙实现）}
+
+\subsection*{9.6.2 入侵检测基础（Intrusion detection: basics）}
+两类：\textbf{SIDS}（签名/特征检测，比对已知攻击模式，但对\textbf{零日攻击}无能为力，
+越来越不够用）与 \textbf{AIDS}（异常检测，先建模“典型/正常”行为，再识别异常）。
+AIDS 依赖机器学习，需\textbf{训练阶段}收集正常数据、构造检测模型（决策树、神经网络、
+分类器），再进入\textbf{测试阶段}。核心难题是\textbf{假阴性（false negative，
+把异常当正常、漏报）}与\textbf{假阳性（false positive，把正常当异常、误报）}的权衡：
+为避免漏报而偏保守，会导致大量误报，令安全运营人员对告警麻木。
+
+\begin{closeread}
+\pair{Most problematic with a SIDS is when no pattern is yet available, which typically happens with new, unknown attacks, such as zero-day attacks: attacks based on vulnerabilities that have not yet been made public.}{SIDS 最成问题的情况是尚无可用模式时，这通常发生在新的、未知的攻击上，例如零日攻击：基于尚未公开漏洞的攻击。}
+\end{closeread}
+
+\origin{§9.6.2，原书 p.611–612}
+
+\subsection*{9.6.3 协作式入侵检测（Collaborative intrusion detection）}
+大规模分布式系统中没有单一监控点能掌握全貌，于是有 \textbf{CIDS}：一组入侵检测系统
+共享检测与分析结果。传感器（sensor）按\textbf{社区（community）}分组，
+各有 \textbf{community head} 收集数据并分析；社区可重叠（一个传感器可报多个 head）。
+若各社区 head 互不通信且无共用传感器，则只是孤立的 IDS；常见配置是
+\textbf{centralized CIDS}（所有 head 报给单一实体），更有趣的是把 head 组织成 P2P，
+即 \textbf{distributed CIDS}。性能用 \textbf{accuracy} =
+$(TP+TN)/(TP+TN+FP+FN)$ 与 \textbf{precision} = $TP/(TP+FP)$ 度量。
+实验结论：大社区精度更高、社区数在可扩展前提下应尽量少、\textbf{重叠社区}
+（发现被多个 head 共同考虑）有利于精度——但集中式（单一社区）精度最优，
+代价是扩展性问题。
+
+\begin{closeread}
+\pair{a CIDS is a collection of intrusion detection systems that share detections and analyses.}{CIDS 是一组共享检测结果与分析的入侵检测系统。}
+\end{closeread}
+
+\origin{§9.6.3，原书 p.612–613}
+
+\sechead{9.7 Summary}{小结}
+
+\begin{itemize}
+  \item 安全要实现的是\textbf{否定目标}（防止一切未授权行为）；系统应能支持多种
+        \textbf{安全策略}，并提供相应机制。
+  \item 五条设计原则：\textbf{fail-safe defaults}、\textbf{open design}、
+        \textbf{separation of privilege}、\textbf{least privilege}、
+        \textbf{least common mechanism}；机制应分布在从 OS 到应用的各层，
+        并明确\textbf{TCB}（须满足全部安全要求的可信基）。
+  \item \textbf{隐私}日益重要，GDPR 等法规促使系统从设计之初就内建安全与隐私。
+  \item 密码学是基石：对称/非对称加密、哈希、数字签名、密钥交换（Diffie-Hellman）、
+        证书与 CA；同态加密与多方计算（MPC）让\textbf{不可信第三方也能参与计算}。
+  \item 安全大体归结为\textbf{认证}与\textbf{授权}：认证核实身份，授权保护资源，
+        访问控制总在认证之后发生；但\textbf{能验证身份并不足以建立信任}。
+  \item 面对跨组织扩展，需要更少依赖“信任各方”的方案（区块链是一例，
+        但未必是通用解，更简单高效的应用专用方案可能更好）。
+  \item 持续\textbf{监控}（防火墙、SIDS/AIDS、CIDS）不可或缺；
+        实证表明安全与功能\textbf{并非必须取舍}——只要从一开始就考虑安全。
+\end{itemize}
+
+\begin{actions}
+  \item 读原书第 9 章，重点看图 9.3（窃听与入侵）、9.5（Diffie-Hellman）、
+        9.10（reflection attack）、9.13（Needham-Schroeder）、9.16（Kerberos）、
+        9.18（TLS 1.3）、9.19（Sybil 攻击）、9.20（区块链哈希链）、9.23（ACL vs capability）。
+  \item 亲手在本地用 \texttt{ssh-keygen} 生成密钥、\texttt{ssh-copy-id} 分发，
+        观察公钥/私钥文件与 \texttt{.ssh} 目录，理解“密钥即文件、以文件方式分发”。
+  \item 对比 MAC/DAC/RBAC/ABAC 四种策略，为“大学课程成绩表”各写一条访问规则，
+        并指出 ABAC 相比 RBAC 细在哪里。
+  \item 用 ACL 与 capability 两种视角描述“Alice 让邮件客户端代收邮件”，
+        再说明 OAuth 的 access token 更接近哪一种。
+  \item 给一个 Sybil 攻击场景，解释 PoW/PoS 为什么让“多开身份”无利可图；
+        再说明 NetFlow 记账为何抗 Sybil。
+  \item 在假阳性与假阴性之间做一次取舍练习：为你所在系统选定可接受的
+        accuracy 与 precision 目标，并说明理由（安全场景通常更不容忍假阴性）。
+\end{actions}

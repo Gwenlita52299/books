@@ -1,0 +1,368 @@
+% ============================================================
+%  第 2 章 Architectures 导读
+% ============================================================
+\chapter{Architectures}
+\begin{center}
+\begin{minipage}{0.9\textwidth}
+\itshape\small\color{dsgray}
+本章分三层讲“怎么组织”：\textbf{软件架构}（逻辑上组件如何组织与交互，即架构风格）、
+\textbf{中间件}（把应用与平台隔开、提供分布透明，以及如何让它可改）、
+\textbf{系统架构}（组件实际放在哪些机器上：分层、对称/对等、混合）。
+\end{minipage}
+\end{center}
+
+\sechead{2.1 Architectural styles}{架构风格}
+
+\textbf{软件架构}关注逻辑组织。所谓\textbf{架构风格（architectural style）}，
+是用\textbf{组件（component）}、组件的\textbf{连接方式}、交换的\textbf{数据}，
+以及它们如何组合成系统来刻画的。组件是可替换的模块，替换的前提是\textbf{接口不变}
+（系统通常不能停机维护）。\textbf{连接器（connector）}则中介组件间的通信/协调/协作，
+如过程调用、消息传递、流数据。三种主要风格：\textbf{分层}、\textbf{面向服务}、
+\textbf{发布-订阅}；现实中多为组合，尤其“分层”几乎无处不在。
+
+\subsection*{2.1.1 分层架构（Layered architectures）}
+组件按层组织：高层 $L_j$ 向低层 $L_i$（$i<j$）发\textbf{downcall} 并期待应答；
+\textbf{upcall}（低层调用高层）是例外。三种形态：纯分层（只向下一层调用，如网络通信）、
+混合分层（多个高层共享同一低层，如应用与数学库共用 OS 库）、带 upcall
+（如 OS 通过回调句柄通知应用事件）。
+
+\begin{closeread}
+\pair{A component is a modular unit with well-defined required and provided interfaces that is replaceable within its environment.}{组件是一个模块化单元，具有明确定义的所需接口与所提供接口，并可在其环境中被替换。}
+\pair{A connector is generally described as a mechanism that mediates communication, coordination, or cooperation among components.}{连接器通常被描述为一种机制，用于在组件之间中介通信、协调或协作。}
+\end{closeread}
+
+\medskip\noindent\textbf{分层通信协议}是经典例子。关键要区分三件事：一层\textbf{提供什么服务}、
+服务通过什么\textbf{接口}暴露、以及为实现通信所遵循的\textbf{协议}。以可靠、面向连接的
+服务为例：通信前须先建立连接，保证消息不丢且按序到达——Internet 中由 \textbf{TCP} 实现。
+协议规定握手/拆链的消息、保序与纠错的做法；服务以简单的编程接口（连接、收发、关闭）
+提供；而该协议有多种实现与接口（如 Python 的 socket）。
+
+\begin{closeread}
+\pair{It is important to understand the difference between a service offered by a layer, the interface by which that service is made available, and the protocol that a layer implements to establish communication.}{重要的是理解三者的区别：一层所提供的服务、暴露该服务所用的接口、以及该层为实现通信所遵循的协议。}
+\end{closeread}
+
+\origin{§2.1.1，原书 p.57–62（图 2.1 三种分层、图 2.2 服务/接口/协议、图 2.3 socket 示例）}
+
+\medskip\noindent\textbf{应用分层}：大量分布式应用服务于“访问数据库”，可划为三个逻辑层次——
+\textbf{应用接口层}、\textbf{处理层}、\textbf{数据层}。以房产搜索引擎为例：接口层收集城市/价格/房型
+等条件，处理层把它们转成数据库查询、取出结果并排序生成 HTML；本书官网的“生成个性化 PDF”
+也类似，处理层（每 5 分钟生成一次、把邮箱嵌进图里）的计算量远超数据层与接口层。
+
+\subsection*{2.1.2 面向服务的架构（Service-oriented architectures）}
+分层的主要缺点是层间\textbf{强依赖}。反面教材：一个仅用于“补零/补空格”的小组件被从 NPM
+撤下，导致成千上万程序受影响（Kucharski 2020）。由此转向把系统组织成一批\textbf{松散、独立}的
+实体，每个实体封装一个\textbf{服务}（无论叫服务、对象还是微服务，都以\textbf{独立进程/线程}运行）。
+
+\begin{itemize}
+  \item \textbf{基于对象（object-based）}：对象即组件，通过过程调用机制连接，调用可跨网络。
+        接口与实现分离，于是接口在一台机器、对象在另一台机器，即\textbf{远程对象/分布式对象}。
+        客户端绑定后会把一个 \textbf{proxy（代理）}载入其地址空间（相当于 RPC 的 client stub），
+        只负责把方法调用打包成消息、把应答解包返回；服务端的 \textbf{skeleton（骨架）}
+        则把请求解包、在对象接口上发起调用并打包返回值。要点：分布式对象的\textbf{状态不分散}，
+        仍驻留单机，只有接口在别处可用。
+  \item \textbf{微服务（microservices）}：每个微服务作为\textbf{独立的（网络）进程}运行，
+        受 Unix“许多小工具可组合”启发。核心是\textbf{真正的独立}与\textbf{模块化}；
+        至于“多大算微”众说纷纭。因为独立成进程，就产生了“放在哪里”的编排问题。
+  \item \textbf{粗粒度服务组合}：与微服务的（非严格）区别在于，服务\textbf{未必同属一个组织}
+        （如业务应用使用云厂商的存储服务）。例：卖电子书的网站，下单、发货、支付分属不同服务，
+        支付甚至由另一组织提供、把顾客重定向过去。一般服务往往较大，把“微服务集合”实现成一个服务
+        也很常见。难点回归到“服务组合”，与第 1 章的企业应用集成同构。
+  \item \textbf{基于资源（REST）}：把系统看成一大批由组件分别管理的\textbf{资源}。
+        RESTful 架构四要点：\textbf{单一命名方案标识资源}、\textbf{所有服务同一接口（最多四个操作）}、
+        \textbf{消息完全自描述}、\textbf{执行后服务忘记调用者（无状态执行）}。
+        四个操作：\textbf{PUT（修改，传新状态）、POST（创建）、GET（读取）、DELETE（删除）}。
+        例：Amazon S3，对象/桶，\texttt{https://s3.amazonaws.com/BucketName/ObjectName}，
+        用 HTTP 的 PUT/GET 操作。REST 的简单性也可能限制复杂通信（如需要分布式事务），
+        优点是接口通用、易容纳变化；缺点是弱化了编译期检查与语义表达（参数空间被塞进字符串）。
+\end{itemize}
+
+\begin{closeread}
+\pair{A characteristic, but somewhat counterintuitive, feature of most distributed objects is that their state is not distributed: it resides at a single machine.}{大多数分布式对象的一个特征——也稍显反直觉——是：它们的状态并不分散，而是驻留在单台机器上。}
+\pair{Resources are identified through a single naming scheme.}{资源通过单一命名方案来标识。}
+\end{closeread}
+
+\origin{§2.1.2，原书 p.62–68（图 2.6 远程对象、图 2.7 REST 四操作）}
+
+\subsection*{2.1.3 发布-订阅架构（Publish-subscribe architectures）}
+目标是让进程间\textbf{依赖尽量松}，把\textbf{处理}与\textbf{协调}强分开。用两个维度刻画
+协调模型（Cabri 等 2000）：\textbf{时间耦合/解耦} 与 \textbf{引用耦合/解耦}：
+
+\begin{itemize}
+  \item \textbf{直接协调}（时间耦合 + 引用耦合）：通信双方须同时在线、且知道对方名字（如手机通话）。
+  \item \textbf{邮箱协调}（时间解耦 + 引用耦合）：把消息放进（可能共享的）邮箱，无需同时在线，
+        但必须显式指定邮箱。
+  \item \textbf{事件驱动}（时间耦合 + 引用解耦）：进程互不知道，只\textbf{发布通知}描述事件，
+        其他进程\textbf{订阅}某类通知；理想情况下通知精确送达订阅者，但订阅者一般须在发布时在线。
+  \item \textbf{共享数据空间}（时间解耦 + 引用解耦）：进程完全通过\textbf{元组（tuple，
+        类似数据库的一行）}通信，用搜索模式匹配元组（关联式检索），匹配到的元组被取出。
+\end{itemize}
+
+\noindent 关键：进程之间\textbf{没有显式引用}，靠\textbf{事件总线}匹配发布者与订阅者
+（图 2.10）。经典实现是 Linda 的 \textbf{tuple space}，三操作：\texttt{out(t)} 放入、
+\texttt{rd(t)} 读取（阻塞）、\texttt{in(t)} 取出（阻塞）。订阅描述分
+\textbf{topic-based}（属性-值对）与 \textbf{content-based}（属性-范围对，甚至类 SQL 谓词）——
+表达力越强，匹配越难。实现的关键难点是\textbf{高效可扩展地把订阅匹配到通知}；
+作者提醒：一旦涉及安全与隐私，实现很容易成为瓶颈。
+
+\begin{closeread}
+\pair{In an ideal event-based coordination model, a published notification will be delivered exactly to those processes that have subscribed to it.}{在理想的事件驱动协调模型中，一条已发布的通知将恰好投递给订阅了它的那些进程。}
+\pair{The key idea is that processes communicate entirely through tuples.}{其核心思想是：进程完全通过元组进行通信。}
+\end{closeread}
+
+\origin{§2.1.3，原书 p.68–73（图 2.9 协调模型、图 2.10 事件总线/共享数据空间、Linda 示例图 2.11）}
+
+\sechead{2.2 Middleware and distributed systems}{中间件与分布式系统}
+
+中间件是逻辑上介于\textbf{应用}与\textbf{各机器的 OS}之间的软件层（跨多台机器、对每个应用
+提供同一接口）。它之于分布式系统，犹如 OS 之于单机：资源管理器 + 一批通用服务
+（应用间通信、安全、计费、失败掩盖与恢复）。这些服务多数对很多应用都有用，
+故中间件也可看作“通用组件的容器”。（Note 2.4：middleware 一词最早见于 1968 年
+NATO 软件工程会议报告。）
+
+\subsection*{2.2.1 中间件的组织}
+两种关键设计模式，目标都是\textbf{开放性}：
+\begin{itemize}
+  \item \textbf{包装器（wrapper/adapter）}：把组件原生接口转换成客户可接受的接口。
+        例：对象适配器让应用调用“其实是关系数据库上的库函数”的远程对象；
+        S3 的 REST 接口本质就是一个适配器。但逐对开发包装器不可扩展——$N$ 个应用理论上需
+        $O(N^2)$ 个包装器。用 \textbf{broker（消息代理）}集中转发可降到 $O(N)$。
+  \item \textbf{拦截器（interceptor）}：打断常规控制流、插入应用特定代码，是适配中间件的主要手段。
+        三步式远程对象调用：本地同接口调用 → 转成\textbf{通用对象调用} → 转成\textbf{传输层消息}。
+        在“通用调用”这层插入\textbf{请求级拦截器}，就能处理“对象 B 被复制、每次调用要对所有副本发起”，
+        而对象 A 与对象中间件都无需知道复制；在消息层插入\textbf{消息级拦截器}，可对大参数做分片等。
+\end{itemize}
+
+\begin{closeread}
+\pair{Interceptors are a primary means for adapting middleware to the specific needs of an application.}{拦截器是把中间件适配到某个应用特定需求的主要手段。}
+\end{closeread}
+
+\subsection*{2.2.2 可修改的中间件（Modifiable middleware）}
+运行环境持续变化（移动性、网络服务质量波动、硬件故障、电量耗尽……），
+把“应对变化”的责任从应用移到中间件，且系统大到不能停机，必须\textbf{在线修改}。
+于是有了\textbf{可修改中间件}（Parlavantzas \& Coulson 2007）：不仅要自适应，还要能
+\textbf{有目的地改而不停服}。主流做法是\textbf{按组件动态组装中间件}，需要\textbf{迟绑定}；
+难点在于“替换某组件会如何影响其他组件”往往不清楚——\textbf{组件并没有想象中那么独立}。
+底线：至少要在运行时能装卸组件，并显式声明每个组件提供/需要的接口；若组件间还保持状态，更需特殊处理。
+
+\origin{§2.2，原书 p.73–78（图 2.13 中间件层、图 2.14 broker 降包装器数、图 2.15 拦截器）}
+
+\sechead{2.3 Layered-system architectures}{分层系统架构}
+
+系统架构 = 组件放在哪些机器上。先从最容易理解的\textbf{客户端-服务器}开始。
+
+\subsection*{2.3.1 简单客户端-服务器架构}
+\textbf{服务器}实现某服务；\textbf{客户端}发请求并等待应答（request-reply）。网络较可靠时
+可用\textbf{无连接}协议（高效，但难抗偶尔的传输失败）：客户端超时重发时，
+无法区分“请求丢了”还是“应答丢了”，若是后者会\textbf{重复执行}。可安全重复执行的操作叫
+\textbf{幂等（idempotent）}（如“查余额”），不可重复的（如“转账”）则宁可报错。
+另一种是\textbf{可靠、面向连接}的协议（几乎所有 Internet 应用协议基于 TCP/IP），
+但建立/拆除连接有开销。客户/服务器的界限常常模糊——数据库服务器可能同时是文件服务器的客户端。
+
+\begin{closeread}
+\pair{When an operation can be repeated multiple times without harm, it is said to be idempotent.}{当一个操作可以被重复执行多次而不造成损害时，就说它是幂等的。}
+\end{closeread}
+
+\subsection*{2.3.2 多层架构（Multitiered）}
+把三层（用户界面、处理、数据）铺到机器上：最简是\textbf{两层}——客户端只有界面、服务器
+包办处理与数据（瘦客户端，如“哑终端”）。(a)–(e) 展示界面/应用/数据库在客户端与服务器间的
+不同切分：(a) 仅终端相关部分在客户端；(b) 整个界面在客户端；(c) 把部分应用移到前端（如表单校验、
+字处理器的基础编辑在本地、拼写语法检查在服务器）；(d)(e) 应用主体在客户端、文件/数据库操作去服务器
+（e 还在本地磁盘缓存数据，如浏览器缓存）。
+
+\begin{ideabox}[Note 2.5：存在“最佳组织”吗？]
+趋势是从 (d)(e) 这种“胖客户端”转向把处理与存储放到服务器端。原因：客户端机器虽强，
+但\textbf{难管理}（要应对各种终端用户行为、依赖其平台、需维护多版本）。
+不过“胖客户端”不会消失——办公套件、多媒体、离线场景仍需要它；而且现代 Web 技术
+让动态部署客户端脚本变得容易、平台依赖减弱，“管理复杂”这一反对理由已常不成立
+（虚拟桌面环境，见第 3 章）。另外，放弃胖客户端并不等于不需要分布式系统：
+服务器端本身正变得越来越分布式（云计算即例）。
+\end{ideabox}
+
+\noindent 当服务器也需要充当客户端（如应用服务器 AS 向数据库服务器 DS 请求，图 2.18），
+就得到\textbf{三层架构}。典型场景：事务处理（TP monitor 协调跨数据服务器的事务）、
+网站组织（Web 服务器 → 应用服务器 → 数据库服务器）。
+
+\begin{closeread}
+\pair{In this organization everything is handled by the server while the client is essentially no more than a dumb terminal.}{在这种组织中，一切都由服务器处理，而客户端本质上不过是一个哑终端。}
+\end{closeread}
+
+\subsection*{2.3.3 例：网络文件系统 NFS}
+每个 NFS 服务器对本地文件系统提供\textbf{标准化视图}，使异构的进程（不同 OS/机器）
+共享同一文件系统。两种模型：\textbf{远程访问模型（remote access）}——客户端透明访问服务器上的
+文件，实际的写/读操作都在服务器执行；\textbf{上传/下载模型}——客户端把文件下载到本地操作、
+完成后再传回（如 FTP）。NFS 采用远程访问模型，实践中两大优点位于 \textbf{VFS（虚拟文件系统）}：
+本地 Unix 文件接口被换成 VFS 接口，操作要么交给本地文件系统、要么交给 \textbf{NFS client}
+（用 \textbf{RPC} 与服务器通信）；服务端 \textbf{NFS server} 把入站请求转成 VFS 操作。
+好处是 NFS 基本\textbf{独立于本地文件系统}（Unix/Windows/MS-DOS 皆可），只要符合 NFS 的模型
+（MS-DOS 的短文件名无法完全透明地实现 NFS 服务器）。
+
+\begin{closeread}
+\pair{The basic idea behind NFS is that each file server provides a standardized view of its local file system.}{NFS 的基本思想是：每个文件服务器对其本地文件系统提供一个标准化的视图。}
+\end{closeread}
+
+\subsection*{2.3.4 例：Web}
+Web 的架构并不特殊，但能看出从“支持分布式文档”到“支持服务”的演化。
+简单 Web 系统仍是经典客户端-服务器：URL 内嵌服务器 DNS 名与文件名、并指明应用层协议；
+浏览器与服务器遵循 \textbf{HTTP}。文档从纯文本、到 \textbf{HTML} 标记、再到嵌入
+\textbf{JavaScript} 脚本（增强交互）。当服务器不止“取文档”：
+\textbf{CGI} 让服务器按用户数据执行程序（把“取文档”委派给外部程序）；
+\textbf{服务端脚本（如 PHP）} 则在本地取到文档后先执行脚本、把结果并入文档再发给客户端
+（脚本本身不发送）。文档因此变得完全动态。
+
+\origin{§2.3，原书 p.78–88（图 2.17 两层组织、图 2.18 三层、图 2.19 两种文件模型、图 2.20 NFS、图 2.22 CGI）}
+
+\sechead{2.4 Symmetrically distributed system architectures}{对称分布式系统架构}
+
+\textbf{垂直分布（vertical）}：把逻辑上不同的组件放到不同机器（多层架构即此，
+类比数据库的“按列切分”）。\textbf{水平分布（horizontal）}：把客户端/服务器拆成\textbf{逻辑等价}
+的多份，各处理一部分数据以均衡负载——这正是\textbf{对等（peer-to-peer）系统}。
+P2P 中进程都“平等”，同时充当客户端与服务器（即 \textbf{servant}）。核心问题是如何组织
+\textbf{覆盖网络（overlay network）}：节点是进程、边是可能的通信信道（常为 TCP 连接）。
+分\textbf{结构化}与\textbf{非结构化}两类。
+
+\subsection*{2.4.1 结构化 P2P}
+节点按\textbf{确定的拓扑}组织（环、二叉树、网格等）以高效查找。基础是
+\textbf{无语义索引（semantic-free index）}：每个数据项唯一关联一个 key，
+$\text{key} = \text{hash}(\text{value})$，系统整体负责存 $(key,value)$ 对，
+每个节点负责一部分 key，于是系统实现了一个 \textbf{分布式哈希表（DHT）}。
+查找归结为 $\text{existing node} = \text{lookup}(\text{key})$，靠拓扑高效路由。
+
+\begin{closeread}
+\pair{In a structured peer-to-peer system the nodes are organized in an overlay that adheres to a specific, deterministic topology.}{在结构化对等系统中，节点被组织在一个遵循特定、确定性拓扑的覆盖网络中。}
+\pair{In essence, the system is thus seen to implement a distributed hash table.}{本质上，这样的系统实现了（就构成了）一个分布式哈希表。}
+\end{closeread}
+
+\noindent 例：超立方体路由（把 key 哈希到 16 个节点之一，逐位靠近目标）。
+更现实的\textbf{Chord}（Stoica 等 2003）：节点排成环，key $k$ 映射到标识符
+$\ge k$ 的最小节点 $\text{succ}(k)$；每个节点维护若干\textbf{快捷边}，使任意两点最短路为
+$O(\log N)$。查找时“尽量往远跳但不越过目标”。加入：联系任一节点查出 $\text{succ}(u)$、
+把自己插到其前驱与它之间，并迁移相应数据；离开同样简单。
+
+\subsection*{2.4.2 非结构化 P2P}
+每个节点维护\textbf{临时（ad hoc）邻居表}，覆盖网络近似\textbf{随机图}。无法按预定路线查找，
+只能\textbf{搜索}。两种极端：
+
+\begin{itemize}
+  \item \textbf{泛洪（flooding）}：把请求转给所有邻居，已见过的请求忽略；用 \textbf{TTL}
+        限制跳数（太小到不了、太大太贵），或从 TTL=1 逐轮增大。
+  \item \textbf{随机游走（random walk）}：每次只问一个随机邻居，网络流量小、但可能很久才找到；
+        同时启动 $n$ 条可把等待时间约降到 $1/n$（$n=16$ 或 $64$ 即有效）。
+\end{itemize}
+
+\begin{ideabox}[Note 2.7：为什么随机游走可行]
+数据通常是\textbf{被复制的}。设 $N$ 个节点、每项复制到 $r$ 个随机节点，则平均搜索规模
+$S \approx N/r$。当 $r/N = 0.1\%$ 时 $S\approx 1000$；而泛洪到 $d=10$ 个邻居需至少 4 步、
+触及约 7290 个节点。只有 $d$ 很大（如 33）时泛洪才与之相当。代价是随机游走\textbf{回答更慢}。
+\end{ideabox}
+
+\noindent 介于两者之间是\textbf{基于策略}的方法（如优先记住常给出好结果的邻居）。
+
+\subsection*{2.4.3 分层组织的 P2P}
+非结构化 P2P 随规模增长难以定位数据（只能搜）。办法是引入维护索引/充当 broker 的
+\textbf{超级节点（super peer）}，形成\textbf{分层}组织：普通\textbf{弱节点（weak peer）}
+作为客户端连到某个超级节点，往来通信都经它。绑定通常固定（弱节点加入时选一个、
+离开前不变），故期望超级节点长寿高可用，可用“每个超级节点配一个备份、弱节点同时连两个”补偿。
+更灵活的做法是让弱节点连到“维护其感兴趣文件索引”的超级节点，并允许随发现更好的超级节点而改绑。
+新问题：如何选出有资格的超级节点——与\textbf{领导者选举}密切相关（见 §5.4）。
+
+\subsection*{2.4.4 例：BitTorrent}
+（大体）非结构化的文件共享系统。用户下载一个文件的\textbf{分块}直到拼成完整文件。
+设计目标是\textbf{促进协作}，防止只下载不上传的 \textbf{free riding}：只有在
+下载者同时向他人提供内容时才允许其下载（若 P 发现 Q 下载多于上传，可降低发给 Q 的速率）。
+流程：用户访问全局目录（少数知名网站）拿到 \textbf{torrent 文件}，其中含指向
+\textbf{tracker}（记录拥有该文件分块的活跃节点）的链接。tracker 易成瓶颈，
+改进版让节点加入一个 \textbf{DHT} 来分担跟踪功能（用 \textbf{magnet link} 在 DHT 中查找初始 tracker）。
+
+\begin{closeread}
+\pair{An important design goal was to ensure collaboration.}{一个重要的设计目标是确保（参与者之间的）协作。}
+\end{closeread}
+
+\origin{§2.4，原书 p.88–98（图 2.23 超立方体、图 2.24 Chord、图 2.25 超级节点、图 2.26 BitTorrent）}
+
+\sechead{2.5 Hybrid system architectures}{混合系统架构}
+
+现实系统多是集中式 + P2P + 分层的混合，且常跨组织边界。
+
+\subsection*{2.5.1 云计算（Cloud computing）}
+源于\textbf{效用计算（utility computing）}（把任务上传到数据中心、按资源计费）。
+Vaquero 等（2008）：云计算以\textbf{易于使用且可访问的虚拟化资源池}为特征，可动态配置，
+从而提供\textbf{可扩展}的基础；按\textbf{pay-per-use} 模型，用定制的 \textbf{SLA} 提供保证。
+云分四层：\textbf{Hardware}（处理器/路由/供电/制冷）、\textbf{Infrastructure}
+（用虚拟化提供虚拟存储与计算资源）、\textbf{Platform}（给开发者类似 OS 的能力与厂商 API，
+如 S3、exec 家族）、\textbf{Application}（真正运行的应用）。据此有三种服务：
+\textbf{IaaS、PaaS、SaaS}。从系统架构看，云可视为高度先进的客户端-服务器架构，
+但服务器实现对客户端完全隐藏（位置不明、常高度分布式）；\textbf{FaaS} 更进一步——
+客户端连服务器都不用操心就能跑代码。
+
+\subsection*{2.5.2 边缘-云架构（Edge-cloud）}
+IoT 兴起后需要“云之外的东西”。\textbf{边缘计算}把服务放到“网络边缘”
+（如企业网与 Internet 的边界、校园网）。其存在理由要批判地看：
+
+\begin{itemize}
+  \item \textbf{延迟与带宽}：带宽持续增长，用“带宽不足”当理由越来越站不住脚，
+        但\textbf{视频}等服务质量场景确实需要靠近终端；\textbf{延迟}是更硬的理由
+        （到达云可能要 100ms，半自动驾驶等实时应用无法接受；车与车可在路口附近
+        通过本地边缘设施互相“显形”）。
+  \item \textbf{可靠性}：有人认为云连接不够可靠，但很多场景连接其实很好；
+        医院/工厂等关键场景本就有其它措施，边缘是否带来新东西未必清楚。
+  \item \textbf{安全与隐私}：“云不安全则边缘也未必安全”；边缘确有“数据在组织边界内”
+        的保护优势，但挡不住内部攻击。更硬的理由是\textbf{法规}——某些数据（如病历）
+        根本不允许上云，只能自建边缘设施。
+\end{itemize}
+
+\noindent 引入边缘层会打开“潘多拉魔盒”：客户组织必须决定\textbf{什么放哪里}，
+而边缘相比云\textbf{资源更少、异构更强、负载更动态}，对\textbf{编排（orchestration）}
+的需求更高。编排要点：\textbf{资源分配}、\textbf{服务放置}（如视频会议编码放在边缘）、
+\textbf{边缘选择}（不一定最近，还要看与云的连通性等）。
+
+\begin{closeread}
+\pair{Overcoming latency is one of the most compelling reasons for developing edge infrastructures.}{克服延迟，是发展边缘基础设施最具说服力的理由之一。}
+\end{closeread}
+
+\subsection*{2.5.3 区块链架构（Blockchain architectures）}
+区块链使\textbf{交易}的登记成为可能，故也称\textbf{分布式账本}。银行是\textbf{可信第三方}；
+区块链的设计前提是\textbf{参与方原则上不可信}，因而排除可信第三方。参与者共同在
+\textbf{公开账本}中登记交易，任何人都能看到并验证（如检查一枚币是否已被花掉）。
+流程：Alice 广播转账意图（Step 1）→ 验证者把若干交易打包成\textbf{块}以提高效率（Step 2）
+→ 验证并\textbf{不可变}地附加到链上、把块广播给所有参与者（Step 3）。逻辑上只有\textbf{单一链}，
+每个块不可变（改动必被发现），因而适合\textbf{海量复制}（每人本地存一份）。
+
+\medskip\noindent 系统的关键差异在于\textbf{谁有资格验证}，这需要\textbf{（分布式）共识}，
+有三种组织：
+\begin{enumerate}[leftmargin=1.6em]
+  \item \textbf{集中式}：可信第三方验证（不符合区块链目标）；
+  \item \textbf{分布式（许可链 permissioned）}：一小组被许可的节点验证，假设至多
+        $k \le (n-1)/3$ 个节点失败/作恶；缺点是 $n$ 通常只有几十。
+  \item \textbf{完全去中心化（无许可链 permissionless）}：所有愿验证的节点通过
+        \textbf{领导者选举}参与，选出的领导者追加块（常有奖励）；领导者选举本身开销大。
+\end{enumerate}
+
+\begin{closeread}
+\pair{An important design assumption for blockchains is that participating parties can, in principle, not be trusted.}{区块链的一个重要设计前提是：参与方原则上不可被信任。}
+\pair{Each block is immutable, in the sense that if an adversary decides to modify any transaction from any block in that chain, the modification can never go unnoticed.}{每个块都是不可变的——只要攻击者改动了链上任一块中的任一交易，这种改动就绝不可能不被发现。}
+\end{closeread}
+
+\origin{§2.5，原书 p.98–108（图 2.27 云的四层、图 2.28 边缘-云、图 2.29 区块链流程、图 2.30 三种组织）}
+
+\sechead{2.6 Summary}{小结}
+
+\begin{itemize}
+  \item 区分\textbf{软件架构}（逻辑组织：组件如何交互、如何独立化）与\textbf{系统架构}
+        （组件实际放在哪些机器上）。
+  \item \textbf{架构风格}反映组织组件交互的基本原则，重要者有分层、面向服务、
+        以及以事件处理为特征的发布-订阅。
+  \item 客户端-服务器是经典且常高度集中的组织：客户端发请求、服务器返结果。
+  \item 去中心化架构中进程角色平等，即 P2P；进程组织成\textbf{覆盖网络}——
+        结构化者可用确定性的路由方案，非结构化者需\textbf{搜索}算法。
+  \item 混合架构组合集中与去中心化：云计算（逻辑上是客户端-服务器、服务器实则高度分布式）、
+        边缘计算（终端与云之间的若干层，编排要求高）、以及越来越流行的区块链。
+\end{itemize}
+
+\begin{actions}
+  \item 读原书第 2 章，重点看图 2.1（分层三形态）、图 2.10（事件总线）、图 2.17（两层切分）、
+        图 2.19（NFS 两模型）、图 2.27（云四层）、图 2.30（区块链三组织）。
+  \item 拿一个你熟悉的系统（如电商下单），画出它的组件与连接器，判断属于哪种架构风格。
+  \item 对比 REST 与“服务专用接口”：何时 REST 的简单性会成为限制？（提示：需要分布式事务时。）
+  \item 用“时间耦合/引用耦合”给 Slack、消息队列、Redis 各定位一个坐标。
+  \item 判断你所在场景是否真需要边缘：延迟、可靠性、法规三条理由分别成立吗？
+\end{actions}

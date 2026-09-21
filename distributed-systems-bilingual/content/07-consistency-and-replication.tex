@@ -1,0 +1,391 @@
+% ============================================================
+%  第 7 章 Consistency and Replication 导读
+% ============================================================
+\chapter{Consistency and Replication}
+\begin{center}
+\begin{minipage}{0.9\textwidth}
+\itshape\small\color{dsgray}
+复制数据有两大动机——\textbf{可靠性}（reliability）与\textbf{性能}（performance），
+但副本一多就带来\textbf{一致性}（consistency）问题。本章先讲清“一致”究竟指什么：
+从以数据为中心（data-centric）的模型，到以客户端为中心（client-centric）的模型；
+再讲副本如何管理与更新如何传播，以及实现这些模型的\textbf{一致性协议}
+（consistency protocol）；最后以 Web 缓存与 CDN 收尾。核心张力是：
+\textbf{一致性越强，越难扩展、代价越大}，所以现实系统往往选择“放松”。
+\end{minipage}
+\end{center}
+
+\sechead{7.1 Introduction}{引论}
+
+复制的动机不外乎两条：一是\textbf{可靠性}——一份副本崩溃可切到另一份，
+多份还能对抗数据损坏（三份中取至少两份返回的值）；二是\textbf{性能}——把数据
+放到离使用它的进程更近的地方，从而降低访问时间，应对规模或地理范围的扩展。
+但复制有代价：只要一份副本被修改，它就和其余副本不同了，于是必须把修改传播到
+所有副本。何时、如何传播，决定了代价的大小。以浏览器缓存网页为例：本地副本让
+访问极快，可一旦网页在别处被更新，缓存就变旧了。应对办法要么是禁止本地副本
+（但离用户远时访问时间仍差），要么让服务器去失效/更新每个缓存——而后者要求
+服务器跟踪所有缓存并发消息，可能反过来拖垮自己的性能。
+
+\subsection*{7.1.1 复制的理由（Reasons for replication）}
+\textbf{可靠性复制}：文件系统有副本时，一份崩溃可切换到另一份继续工作；
+维护多份还能防损坏，例如三份副本、每次读写都作用于三份，则以至少两份
+返回的值作为正确值。\textbf{性能复制}：当大量进程访问同一台服务器上的数据
+（规模扩展），或需要缩短地理距离（地理扩展）时，复制服务器、分散负载即可。
+代价在于一致性：一旦某副本被修改，就必须把修改传播到其余副本。
+
+\begin{closeread}
+\pair{There are two primary reasons for replicating data.}{复制数据有两个主要理由。}
+\pair{The problem with replication is that having multiple copies may lead to consistency problems.}{复制的问题在于：拥有多份副本可能引发一致性问题。}
+\pair{Whenever a copy is modified, that copy becomes different from the rest.}{每当一份副本被修改，该副本就与其余副本不同了。}
+\end{closeread}
+
+\origin{§7.1.1，原书 p.393–394（图 7.1 逻辑数据存储的一般组织）}
+
+\subsection*{7.1.2 作为扩展技术的复制（Replication as scaling technique）}
+设进程 P 每秒访问本地副本 $N$ 次，而副本每秒被更新 $M$ 次。若 $N \ll M$，
+大量更新版本永远读不到，为它们付出的网络通信就是浪费——此时不如不装本地副本。
+更严重的是：保持多副本一致本身可能带来扩展问题。所谓 \textbf{tight consistency}
+（由 \textbf{synchronous replication} 提供）要求更新在所有副本上作为单一原子操作
+（事务）；难点在于需要\textbf{全局同步}——副本先要对“更新在何时本地执行”达成一致，
+例如用 Lamport 时间戳决定全局顺序，或由协调者指派顺序，这在广域网上很耗时。
+于是形成两难：复制/缓存改善性能，全局同步又拖累性能。出路是\textbf{放松一致性约束}，
+代价是副本不总相同；能放松到什么程度，取决于访问/更新模式与数据用途。
+
+\begin{closeread}
+\pair{Often, the only real solution is to relax the consistency constraints.}{通常，唯一真正的解法是放松一致性约束。}
+\pair{The cure may be worse than the disease.}{这种“治疗”可能比疾病本身更糟。}
+\end{closeread}
+
+\origin{§7.1.2，原书 p.394–395}
+
+\sechead{7.2 Data-centric consistency models}{以数据为中心的一致性模型}
+
+这里把共享数据抽象为 \textbf{data store}（可物理分布、每进程有本地副本），
+写操作传播到其他副本。\textbf{一致性模型}本质上是\textbf{进程与数据存储之间的契约}：
+若进程遵守某些规则，存储就承诺正确工作。理想情况下读应返回“最后一次写”的结果，
+但没有全局时钟，“最后一次”很难精确定义，于是产生一系列模型，各自限制读能返回的值。
+规律是：\textbf{限制越强的模型越好用，性能却越差；限制越弱的越难用，性能越好}。
+
+\subsection*{7.2.1 操作的一致性排序（Consistent ordering of operations）}
+\textbf{顺序一致性（sequential consistency）}（Lamport 1979）：结果等价于把所有进程的
+读写操作按\textbf{某个顺序}执行，且每个进程的操作保持其\textbf{程序序}。它不涉及时间，
+只要求所有进程看到\textbf{同一交错}。原文用 $W_i(x)a$、$R_i(x)b$ 记号与 720 种潜在序列
+（其中 90 种合法）说明其微妙。顺序一致性\textbf{不可组合}：两个各自顺序一致的变量，
+合起来未必一致；补上 \textbf{linearizability}（线性一致性）可解决——要求每个操作
+“在其起始与完成之间的某一瞬间原子生效”。
+
+\textbf{因果一致性（causal consistency）}把操作分为\textbf{潜在因果相关}与\textbf{并发}
+（并发即无因果相关）：因果相关的写必须被所有进程以同一顺序看到，并发写可在不同机器
+以不同顺序看到。实现需维护\textbf{依赖图}。更弱的模型通过对同步变量（锁）把一组
+读写“括起来”（\texttt{ENTER\_CS}/\texttt{LEAVE\_CS}，临界区 critical region），
+提高粒度，即 \textbf{entry consistency}：锁随对象分别管理，未加锁的普通读可能读到本地旧值。
+最后要区分 \textbf{consistency}（针对一组数据项）与 \textbf{coherence}（针对单个数据项）。
+
+\begin{closeread}
+\pair{The result of any execution is the same as if the (read and write) operations by all processes on the data store were executed in some sequential order and the operations of each individual process appear in this sequence in the order specified by its program.}{任何一次执行的结果，都等同于所有进程对数据存储的（读和写）操作按某个顺序执行，且每个进程各自的操作在此序列中按其程序规定的顺序出现。}
+\pair{Each operation should appear to take effect instantaneously at some moment between its start and completion.}{每个操作都应看起来是在其起始与完成之间的某一瞬间即时生效的。}
+\pair{Writes that are potentially causally related must be seen by all processes in the same order. Concurrent writes may be seen in a different order on different machines.}{潜在因果相关的写必须被所有进程以相同顺序看到；并发写则可在不同机器上以不同顺序被看到。}
+\pair{Where data consistency is concerned with a set of data items, coherence models describe what can be expected to hold for only a single data item.}{数据一致性关注的是一组数据项，而一致性（coherence）模型描述的是仅对单个数据项可以期望成立的性质。}
+\end{closeread}
+
+\origin{§7.2.1，原书 p.396–406（图 7.2–7.13，含顺序一致性、线性一致性、因果一致性、entry consistency）}
+
+\subsection*{7.2.2 最终一致性（Eventual consistency）}
+许多系统里并发其实很受限：数据库多为读、很少写；Web 页面通常只有单一权威
+（webmaster 或页主）在更新，不存在 write-write 冲突；DNS 按域划分，每个域只由
+一个命名权威更新。这些场景可以\textbf{懒惰地（lazy）}传播更新，容忍暂时不一致。
+它们的共同点是：只要长期没有更新，所有副本会逐渐变得相同——这就是
+\textbf{eventual consistency}。它只要求更新最终传播到所有副本；无 write-write 冲突时
+副本会收敛，实现往往很便宜。为了让它在冲突时也“收敛到同一状态”，出现了
+\textbf{strong eventual consistency} 与 \textbf{CRDT}（无冲突复制数据类型），
+允许并发更新而无需额外协调。
+
+\begin{closeread}
+\pair{This form of consistency is called eventual consistency.}{这种形式的一致性称为最终一致性。}
+\pair{Eventual consistency essentially requires only that updates are guaranteed to propagate to all replicas.}{最终一致性本质上只要求保证更新会传播到所有副本。}
+\end{closeread}
+
+\origin{§7.2.2，原书 p.406–410（Note 7.3：如何把最终一致性变强）}
+
+\subsection*{7.2.3 连续一致性（Continuous consistency）}
+不存在“复制数据的最佳方案”。Yu 与 Vahdat 用三条彼此独立的轴来描述可容忍的不一致：
+\textbf{数值偏差}（numerical deviation，如股价副本间不超过 \$0.02）、
+\textbf{陈旧度偏差}（staleness deviation，如天气报告几小时内可接受）、
+\textbf{排序偏差}（ordering deviation，各副本更新顺序可不同但有界）；
+它们构成 \textbf{continuous consistency ranges}。度量单元叫 \textbf{conit}：
+例中把 (g, p, d) 三个变量视为一个 conit，副本用二维向量时钟记录；
+A 有 3 个暂未提交的更新即排序偏差为 3，数值偏差用“未看到的操作数 + 缺失值之和”表示。
+conit 的粒度存在权衡：太大易令副本过早进入不一致（false sharing），太小则管理开销大。
+
+\begin{closeread}
+\pair{There is no such thing as the best solution to replicating data.}{复制数据并不存在所谓的最佳方案。}
+\pair{They refer to these deviations as forming continuous consistency ranges.}{他们把这些偏差统称为连续一致性区间。}
+\end{closeread}
+
+\origin{§7.2.3，原书 p.410–414（图 7.15 偏差示例、图 7.16 conit 粒度）}
+
+\sechead{7.3 Client-centric consistency models}{以客户端为中心的一致性模型}
+
+以数据为中心的模型追求\textbf{系统级}一致视图，前提是并发进程会同时更新数据。
+但有一类数据存储少有并发更新（更新容易解决、多为读），只提供弱一致（如最终一致）。
+问题在于：客户端若短时间内访问\textbf{不同副本}（典型是移动用户 Alice 换位置或换设备），
+先前更新尚未传播，她就会觉得“什么都没发生”。\textbf{client-centric consistency}
+只对\textbf{单个客户端}的访问序列提供保证，不保证不同客户端的并发访问。
+它源自 Bayou 等移动数据系统。记号：$x_i$ 是数据项 $x$ 的版本，$WS(x_i)$ 是其写集，
+$W(x_i; x_j)$ 表示 $x_j$ 由 $x_i$ 派生。
+
+\subsection*{7.3.1 单调读（Monotonic reads）}
+保证：进程读到 $x$ 的某个值后，后续对 $x$ 的读永远返回该值或更新的值——
+即\textbf{绝不会看到更旧的版本}。例：分布式邮件库，在旧金山读过的邮件，
+飞到纽约再打开时仍然在（消息不会被删除或标记）。
+
+\begin{closeread}
+\pair{If a process reads the value of a data item x, any successive read operation on x by that process will always return that same value or a more recent value.}{若某进程读到了数据项 x 的值，该进程此后对 x 的任何读取操作都将返回同一值或更新的值。}
+\end{closeread}
+
+\origin{§7.3.1，原书 p.417–418（图 7.18）}
+
+\subsection*{7.3.2 单调写（Monotonic writes）}
+保证：同一进程对 $x$ 的写操作\textbf{按发起顺序}完成。换言之，某副本上执行新写之前，
+必须先让该副本反映出同一进程先前的所有写（这些写可能发生在别的副本上）。
+它类似于以数据为中心的 \textbf{FIFO consistency}，只是仅针对单个进程。
+例：软件库更新——若在某副本上更新，则先前所有更新必先执行，最终副本含全部更新。
+
+\begin{closeread}
+\pair{A write operation by a process on a data item x is completed before any successive write operation on x by the same process.}{同一进程对数据项 x 的某次写操作，先于该进程此后对 x 的任何写操作完成。}
+\end{closeread}
+
+\origin{§7.3.2，原书 p.418–420（图 7.19）}
+
+\subsection*{7.3.3 读你所写（Read your writes）}
+保证：某进程对 $x$ 的写，必被同一进程后续对 $x$ 的读看到。典型反例是更新网页后刷新
+却看到旧版（浏览器或服务器返回了缓存副本）；改密码后短时间内登录不了也属此类。
+把编辑器与浏览器集成，更新时使缓存失效即可满足。
+
+\begin{closeread}
+\pair{The effect of a write operation by a process on data item x will always be seen by a successive read operation on x by the same process.}{某进程对数据项 x 的写操作的效果，总会被同一进程此后对 x 的读操作看到。}
+\end{closeread}
+
+\origin{§7.3.3，原书 p.420–421（图 7.20）}
+
+\subsection*{7.3.4 写跟随读（Writes follow reads）}
+保证：某进程在读过 $x$ 之后的写，作用在\textbf{所读到的那个值或更新的值}之上。
+例：网络新闻组中，对某文章的回复只有在原文章已被写入同一副本后才会被写入，
+保证读者先看到原文再看到回复。
+
+\begin{closeread}
+\pair{A write operation by a process on a data item x following a previous read operation on x by the same process is guaranteed to take place on the same or a more recent value of x that was read.}{同一进程在先前读过数据项 x 之后对 x 的写操作，保证作用在其所读到的 x 的同一值或更新值之上。}
+\end{closeread}
+
+\origin{§7.3.4，原书 p.421–422（图 7.21）}
+
+\subsection*{7.3.5 例：ZooKeeper 中的客户端一致性（Example: client-centric consistency in ZooKeeper）}
+ZooKeeper 结合了数据为中心与客户端为中心的元素：它保证更新可\textbf{序列化}
+且保持\textbf{优先级}（monotonic writes：可按某个全序解释所有更新，且每个客户端
+提交的操作顺序被保留），还保证\textbf{单调读}；但不保证读你所写，也不保证写跟随读。
+结构上有一个固定的主服务器（primary）接收全部写并按提交顺序处理，读由客户端所连的
+服务器执行；主服务器何时把其他服务器更新，客户端并不知情。
+
+\begin{closeread}
+\pair{ZooKeeper guarantees that update operations are serializable and keep precedence.}{ZooKeeper 保证更新操作是可序列化的，并保持优先级。}
+\pair{It does not, however, guarantee read-your-writes or writes-follow-read consistency.}{然而，它不保证读你所写、也不保证写跟随读的一致性。}
+\end{closeread}
+
+\origin{§7.3.5，原书 p.422–423（图 7.22）}
+
+\sechead{7.4 Replica management}{副本管理}
+
+一旦决定复制，就要回答“放哪里、放什么、如何保持同步”。放置问题应拆成两个子问题：
+\textbf{replica-server placement}（在哪里放能托管数据存储的服务器）与
+\textbf{content placement}（把内容放在哪些服务器上）；后者常只需为单个数据项找最优位置，
+但必须先有副本服务器。
+
+\subsection*{7.4.1 寻找最佳服务器位置（Finding the best server location）}
+本质是“从 $N$ 个位置里选最优的 $K$ 个”的优化问题，计算复杂，只能用启发式。
+判优标准分成本相关与网络相关（延迟、带宽、逻辑距离、跳数）。算法分几类：
+\textbf{QoS aware}（优化或保证某 QoS 参数）、\textbf{consistency aware}（考虑保持副本
+最新的代价，含周期性/非周期/基于过期/基于缓存的更新）、\textbf{energy}（能耗）、
+以及其他（如跨自治系统的费用）。难点之一是输入本身难测——准确测量客户端到副本的
+延迟或带宽并不容易，因此优化结果要“打折扣地”看待。
+
+\begin{closeread}
+\pair{The placement problem itself should be split into two subproblems: that of placing replica servers, and that of placing content.}{放置问题本身应拆成两个子问题：放置副本服务器，以及放置内容。}
+\end{closeread}
+
+\origin{§7.4.1，原书 p.424–426（图 7.23 放置算法分类）}
+
+\subsection*{7.4.2 内容复制与放置（Content replication and placement）}
+副本分三类（三个同心环）：\textbf{permanent replicas}（初始副本集，数量少，
+如集群内的站点复制、跨 Internet 的 mirroring、分布式数据库的 shared-nothing /
+federated 架构）；\textbf{server-initiated replicas}（由数据拥有者发起的临时副本，
+如纽约的 Web 服务器遭遇某远方突发请求时在该区域装临时副本；CDN 虽由客户端请求触发，
+但决策权在 CDN，仍算服务器发起）；\textbf{client-initiated replicas}（即客户端缓存，
+管理完全交给客户端）。缓存命中（cache hit）可共享，但传统文件系统里文件很少被共享，
+共享缓存往往无用；Web 缓存的重要性也在下降，服务器发起复制反而更有效。
+
+\begin{closeread}
+\pair{Permanent replicas can be considered as the initial set of replicas that constitute a distributed data store.}{永久副本可视为构成一个分布式数据存储的最初那批副本。}
+\pair{Client-initiated replicas are more commonly known as client caches.}{由客户端发起的副本更常被称为客户端缓存。}
+\end{closeread}
+
+\origin{§7.4.2，原书 p.426–430（图 7.24 三类副本、Note 7.6 动态内容放置）}
+
+\subsection*{7.4.3 内容分发（Content distribution）}
+要传播什么？三种选择：只传播\textbf{通知}（失效协议 invalidation，带宽省，适合写多读少）、
+传\textbf{数据}（适合读多写少，可打包日志）、传\textbf{操作}（active replication，
+各副本自己执行操作，参数小则带宽极省，但各副本更耗算力）。
+推送还是拉取？\textbf{push}（服务器主动推，适合强一致、多读者共享的永久/服务器发起副本）
+与 \textbf{pull}（客户端轮询，适合客户端缓存，代价是 cache miss 时响应变慢）各有取舍：
+push 要求服务器跟踪所有客户端缓存（有状态、可能很重），pull 响应时间更长。
+折中方案是 \textbf{lease}：服务器承诺在一段时间内主动推送，到期后客户端改为轮询；
+租期可按\textbf{年龄}、\textbf{续租频率}、\textbf{服务器状态开销}动态调整。
+此外还有 unicast（逐条发 $N$ 条）与 multicast（网络代为高效分发）之别。
+
+\begin{closeread}
+\pair{An important design issue concerns what is actually to be propagated.}{一个重要的设计问题在于：究竟要传播什么。}
+\pair{In a push-based approach, also referred to as server-based protocols, updates are propagated to other replicas without those replicas even asking for the updates.}{在基于推送（也称基于服务器）的协议中，更新被传播到其他副本，而无需那些副本主动索取。}
+\pair{a lease is a promise by the server that it will push updates to the client for a specified time}{租约是服务器的一项承诺：它将在指定时间内把更新推送给客户端。}
+\end{closeread}
+
+\origin{§7.4.3，原书 p.430–434（图 7.26 push/pull 对比）}
+
+\subsection*{7.4.4 管理被复制对象（Managing replicated objects）}
+对分布式对象而言，以数据为中心的一致性自然表现为 entry consistency：把操作按锁
+分组。但复制对象要解决两个问题：一是\textbf{防止同一对象的多个调用并发执行}
+（本地加锁即可串行化）；二是\textbf{保证所有副本上的状态变更相同}——即需要把调用排序，
+让每个副本以相同顺序看到所有调用。多线程对象服务器还得让线程调度\textbf{确定性}，
+否则各副本上的执行顺序可能被打乱。另一个头疼问题是\textbf{replicated invocations}：
+若对象 B 被复制，B 的每个副本都去调用 C，C 就被调用多次（若该调用转账 \$100,000，
+迟早有人抗议）；解决办法之一是由 B 的副本协调者只转发一份请求给 C 的各副本。
+\commentary{注意：这里的确定性线程调度与\textbf{因果/全序多播}是同一件事的两面——
+一致性协议保证了消息的全序，操作系统层的调度不能把它打乱。}
+
+\begin{closeread}
+\pair{we need to ensure that all changes to the replicated state of the object are the same.}{我们需要确保对该对象被复制状态的所有变更都相同。}
+\end{closeread}
+
+\origin{§7.4.4，原书 p.434–437（图 7.27 确定性线程调度、图 7.28–7.29 复制调用）}
+
+\sechead{7.5 Consistency protocols}{一致性协议}
+
+\textbf{一致性协议}是一致性模型的具体实现。数据为中心的模型之后，是客户端为中心的模型。
+
+\subsection*{7.5.1 顺序一致性：主副本协议（Primary-based protocols）}
+每个数据项 $x$ 有一个\textbf{主副本（primary）}协调写。\textbf{remote-write}：
+写转发到固定的单一服务器，读可本地；即 \textbf{primary-backup 协议}——主副本更新本地
+并转发给备份，收齐确认后应答。它是阻塞操作（等待较久），也可做成非阻塞（主副本更新后
+立即应答，再通知备份），但非阻塞更难应对故障。\textbf{local-write}：主副本迁移到发起写的
+进程处，适合连续多次本地写；也可用于可断连的移动计算机（断连前成为主副本、本地更新，
+重连后再传播）。
+
+\begin{closeread}
+\pair{Primary-backup protocols provide a straightforward implementation of sequential consistency, as the primary can order all incoming writes in a globally unique order.}{主备协议为顺序一致性提供了一种直接的实现：主副本能以一个全局唯一的顺序排列所有到达的写。}
+\end{closeread}
+
+\origin{§7.5.1，原书 p.438–440（图 7.30–7.31）}
+
+\subsection*{7.5.2 顺序一致性：复制写协议（Replicated-write protocols）}
+写可发生在多个副本上。\textbf{active replication}：操作转发给所有副本执行，需
+\textbf{全序多播}，常用中央 \textbf{sequencer} 分配序号（可扩展性差，可用多个
+sequencer + Lamport 时间戳）。\textbf{quorum-based}（Thomas 1979；Gifford 1979）：
+读写都要取得多个服务器许可。读配额 $N_R$、写配额 $N_W$ 须满足两条约束：
+$N_R + N_W > N$（防读写冲突，读集与写集必相交）、$N_W > N/2$（防写写冲突）。
+若取 $N_R = 1$、$N_W = N$ 即 \textbf{ROWA}（read one, write all），读极快但写要写全部。
+
+\begin{closeread}
+\pair{The first constraint is used to prevent read-write conflicts, whereas the second prevents write-write conflicts.}{第一条约束用于防止读写冲突，第二条则防止写写冲突。}
+\end{closeread}
+
+\origin{§7.5.2，原书 p.440–443（图 7.32 三种投票选择、ROWA）}
+
+\subsection*{7.5.3 缓存一致性协议（Cache-coherence protocols）}
+缓存是复制的特例——通常由客户端而非服务器控制。可按两个标准分类：\textbf{一致性检测时机}
+（静态：编译器分析插指令；动态：运行时检查，进一步分为访问时校验、乐观地先执行后校验、
+提交时才校验）；\textbf{一致性强制策略}（禁止缓存共享数据 / 服务器发送失效 / 传播更新；
+写透 write-through vs 写回 write-back）。NFS 是经典例子：客户端缓存文件数据、属性、
+文件句柄与目录，用租约（lease）自动失效；NFSv4 还引入 \textbf{open delegation}
+把部分权限下放给客户端，并需服务器能通过 \textbf{callback} 召回委托。
+
+\begin{closeread}
+\pair{Caches form a special case of replication, in the sense that they are generally controlled by clients instead of servers.}{缓存是复制的一个特例：它们通常由客户端而非服务器控制。}
+\end{closeread}
+
+\origin{§7.5.3，原书 p.443–446（图 7.33 NFS 客户端缓存、图 7.34 callback，Note 7.9）}
+
+\subsection*{7.5.4 实现连续一致性（Implementing continuous consistency）}
+限定\textbf{数值偏差}：每个写 $W$ 关联数值 $val(W)$，服务器用日志 $L_i$，用
+$T_W[i,j]$ 表示“由 $S_j$ 发起、被 $S_i$ 执行的写之和”；给每个 $S_i$ 设上界 $\delta_i$，
+使 $v - v_i \le \delta_i$，靠流行病（epidemic）协议快速传播写。
+限定\textbf{陈旧度}：用实时向量时钟 $RVC_k$，当 $t_k - RVC_k[i]$ 逼近上限时主动
+\textbf{拉取}来自 $S_i$ 的较新写（拉取优于推送，因为不知道最大传播时间）。
+限定\textbf{排序偏差}：把暂定写放入本地队列，偏差即队列最大长度；超限时不再接受新写，
+转而与其他服务器协商这些暂定写的全局顺序。
+
+\origin{§7.5.4，原书 p.446–448}
+
+\subsection*{7.5.5 实现客户端一致性（Implementing client-centric consistency）}
+朴素实现：每个写分配全局唯一标识，为每个客户端维护\textbf{读集}（与读操作相关的写）
+与\textbf{写集}（客户端执行的写）。单调读时服务器核对读集并补齐；单调写时按写集补齐
+再执行新写；读你所写要求服务器已见过写集中的全部写；写跟随读则先让服务器追上读集。
+问题在于集合可能极大，可用\textbf{会话}（session）分组，并用\textbf{向量时间戳}压缩
+表示（$SVC_A[j]$ 表示会话 A 中来自 $S_j$ 的最新写时间戳），这正是向量时间戳在分布式
+系统中表示历史的优雅之处。
+
+\begin{closeread}
+\pair{In a naive implementation of client-centric consistency, each write operation W is assigned a globally unique identifier.}{在客户端为中心一致性的朴素实现中，每个写操作 W 被赋予一个全局唯一的标识符。}
+\end{closeread}
+
+\origin{§7.5.5，原书 p.448–450（Note 7.10 用向量时间戳提高效率）}
+
+\sechead{7.6 Example: Caching and replication in the Web}{实例：Web 中的缓存与复制}
+
+Web 可以说是史上最大的分布式系统。客户端缓存有两处：浏览器缓存，以及站点常配的
+\textbf{Web proxy}（可缓存结果供其他客户端复用，即共享缓存）。ISP 也常放缓存以降低
+流量、改善性能，但请求路径上缓存过多，未命中时反而增加延迟。
+一致性协议方面：条件式 HTTP GET 加 \texttt{If-Modified-Since} 头（pull 式）；
+Squid 按
+$T_{\text{expire}} = \alpha(T_{\text{cached}} - T_{\text{last\_modified}}) + T_{\text{cached}}$
+（$\alpha = 0.2$）设过期时间，过期前不回服务器；服务器主动发失效（invalidation）
+则需跟踪大量代理，有扩展性问题，故 Web 代理缓存很少用失效协议。
+至于动态内容，边缘服务器有三种方案：\textbf{全复制}（源服务器数据库，适合更新少、查询复杂）、
+\textbf{内容感知缓存}（content-aware，按查询模板组织本地库，需记录记录与模板的对应关系）、
+\textbf{内容盲缓存}（content-blind，对查询求哈希、命中即返回，计算省但存储冗余大）。
+CDN 则像一个反馈控制系统：指标估计（延迟、带宽、跳数、网络用量、一致性、财务）、
+触发适应、采取放置/一致性/路由措施。
+
+\begin{closeread}
+\pair{The Web is arguably the largest distributed system ever built.}{Web 可以说是迄今建造过的最大的分布式系统。}
+\pair{the server may need to keep track of many proxies, inevitably leading to a scalability problem.}{服务器可能需要跟踪大量代理，这不可避免地导致可扩展性问题。}
+\end{closeread}
+
+\origin{§7.6，原书 p.451–458（图 7.35 协作缓存、图 7.36 CDN 反馈控制、图 7.37 边缘服务器方案，Note 7.11）}
+
+\sechead{7.7 Summary}{小结}
+
+\begin{itemize}
+  \item 复制数据的两大理由：提高\textbf{可靠性}与提高\textbf{性能}；代价是一致性问题——
+        一份副本被更新就与其余不同，必须传播更新，且传播方式可能严重拖累性能。
+  \item 唯一出路是\textbf{放松一致性}。连续一致性用\textbf{数值偏差}、\textbf{陈旧度偏差}、
+        \textbf{排序偏差}三个维度来界定可容忍的不一致。
+  \item 操作的\textbf{一致性排序}是许多模型的基础：顺序一致性给程序员最自然的语义
+        （所有写以同一顺序被所有人看到）；因果一致性较弱但仍有用。
+  \item 更弱的模型把读写序列用锁“括起来”（如 entry consistency），实现更高效。
+  \item 以客户端为中心的模型（单调读、单调写、读你所写、写跟随读）针对移动客户端
+        在不同副本间切换的场景，保证副本对该客户端“补齐”。
+  \item 更新传播要决定：传播什么（通知/操作/状态）、传给谁、由谁发起（push/pull）、
+        以及用单播还是多播。
+  \item 一致性协议：顺序一致性有\textbf{主副本协议}与\textbf{复制写协议}
+        （active replication 与 quorum）。Web 与 CDN 是这些技术的集大成应用。
+\end{itemize}
+
+\begin{actions}
+  \item 读原书第 7 章，重点看图 7.3（顺序一致性反例）、7.5（有效执行序列）、
+        7.13（2PC 式调度）、7.24（三类副本）、7.32（投票选择）、7.36（CDN 反馈控制）。
+  \item 用 \texttt{ENTER\_CS}/\texttt{LEAVE\_CS} 的思想，判断你熟悉的数据库事务
+        属于哪种粒度的一致性（单操作≈顺序一致性，多操作≈entry consistency）。
+  \item 对比“最终一致性”与“强最终一致性（CRDT）”：在一个购物车场景里，
+        删除操作会破坏单调性，你会如何拆分 add/delete 两个可增长集合？
+  \item 给你所在系统画一张副本放置图，标出 permanent / server-initiated /
+        client-initiated 三类副本各有哪些。
+  \item 解释为什么 push 协议要求服务器有状态，以及 lease 如何在 push 与 pull 之间
+        动态切换（年龄、续租频率、服务器负载三种租期策略）。
+\end{actions}

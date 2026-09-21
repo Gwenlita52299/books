@@ -1,0 +1,269 @@
+% ============================================================
+%  第 1 章 Introduction 导读（体例：中文导读 + 关键句精读 + 原文定位）
+% ============================================================
+\chapter{Introduction}
+\begin{center}
+\begin{minipage}{0.9\textwidth}
+\itshape\small\color{dsgray}
+本章确立全书的基本概念：分布式系统与去中心化系统的区别、为什么“分散”
+本身不是目标、六大设计目标（资源共享、分布透明、开放性、可靠性、安全、
+可扩展性），以及三类系统（高性能计算、信息处理、普适计算）。
+最后给出著名的“八个错误假设”，它们是全书反复要打破的思维惯性。
+\end{minipage}
+\end{center}
+
+\sechead{1.1 From networked systems to distributed systems}{从网络系统到分布式系统}
+
+计算机从 1945 年到 1985 年之间大多是彼此孤立的大型机。转折出现在 1980 年代中
+期，两股力量改变了局面：\textbf{强大的微处理器}（从 8 位到 16/32/64 位再到多核）
+与\textbf{高速计算机网络}（LAN 与 WAN）。叠加设备小型化（智能手机、树莓派这类
+“纳米计算机”），联网计算迅速渗入汽车、电网、桥梁等基础设施——这也让它们变得
+“可被攻击”。
+
+\subsection*{1.1.1 Distributed versus decentralized systems}
+
+作者给出的区分，关键在“必要（necessity）”与“充分（sufficiency）”之分：
+
+\begin{itemize}
+  \item \textbf{去中心化（decentralized）}：\emph{被迫}分散。原因往往是行政边界、
+        信任缺失或地理约束。三个典型例子：联邦学习（数据不能出组织边界，
+        于是把训练送到数据那里）、区块链/分布式账本（参与方互不信任，
+        交易必须公开可验证）、地理上天然分散的监控系统（卫星、交通）。
+  \item \textbf{分布式（distributed）}：\emph{主动}分散，以换取可扩展性与容错。
+        典型例子：Gmail（逻辑上只有两台服务器，背后是海量机器）、CDN（Akamai，
+        2022 年超 40 万台服务器）、家用 NAS（多用户共享文件的迷你分布式系统）。
+\end{itemize}
+
+\begin{closeread}
+\pair{A \emph{decentralized system} is a networked computer system in which processes and resources are \emph{necessarily} spread across multiple computers.}{一个\textbf{去中心化系统}，是进程与资源\emph{必然}分散在多个计算机上的网络系统。}
+\pair{A \emph{distributed system} is a networked computer system in which processes and resources are \emph{sufficiently} spread across multiple computers.}{一个\textbf{分布式系统}，是进程与资源\emph{充分}分散在多个计算机上的网络系统。}
+\end{closeread}
+
+\origin{§1.1.1，原书 p.4}
+
+\begin{ideabox}[Note 1.1：中心化就一定差吗？]
+常见误解：中心化无法扩展、且必然带来单点故障。作者强调必须区分
+\textbf{逻辑设计}与\textbf{物理设计}。DNS 逻辑上是一棵树，物理上根节点由
+13 台根服务器实现、每台又是集群；它高度副本化，几乎不可能被单点打垮。
+中心化反而因为“只有一个故障点”而更容易管理、加固，云（cloud）就是高度可扩展
+又稳健的中心化方案。
+\end{ideabox}
+
+\subsection*{1.1.2 Why the distinction is relevant}
+
+中心化方案通常更简单。把服务拆散是一个需要\textbf{慎重权衡}的决定，因为
+分布式/去中心化系统天生困难：存在大量\textbf{非预期依赖}；几乎持续处于
+\textbf{部分失败（partial failure）}状态；节点不断来去、系统高度动态；
+跨网络跨域使其\textbf{易受攻击}。
+
+\commentary{\textbf{全书立场}：“分散”永远不能是目的本身，原则是\emph{能少分散就少分散}
+（追求“充分”而非“必然”）；能简单就简单，因此本书基本不讨论优化——作者认为
+优化带来的复杂度代价高于其性能收益。}
+
+\begin{closeread}
+\pair{Throughout this book, we take the standpoint that decentralization can never be a goal in itself.}{贯穿本书的立场是：去中心化永远不能成为目的本身。}
+\pair{In principle, the less spreading, the better.}{原则上，分散得越少越好。}
+\end{closeread}
+
+\origin{§1.1.2，原书 p.8}
+
+\subsection*{1.1.3 Studying distributed systems}
+
+由于依赖关系无处不在，本书选择从一组\textbf{有限的、互不相同的视角}切入，
+每章一个视角：架构、进程、通信、协调、命名、一致性与副本、容错、安全。
+
+\begin{closeread}
+\pair{For example, there is no such thing as a separate communication module, or a separate security module.}{例如，并不存在一个独立的“通信模块”，也不存在一个独立的“安全模块”。}
+\pair{Each perspective is considered in a separate chapter.}{每一个视角都在单独的一章中讨论。}
+\end{closeread}
+
+\origin{§1.1.3，原书 p.8–10}
+
+\sechead{1.2 Design goals}{设计目标}
+
+\subsection*{1.2.1 资源共享（Resource sharing）}
+目标：让用户与应用\textbf{方便地访问和共享远程资源}（外设、存储、数据、文件、
+服务、网络）。动机包括经济性（共享一套高端存储比人人各买一套便宜）、
+协作（协同编辑/视频会议、跨国软件外包）、P2P 文件共享（BitTorrent）。
+共享已高度“无感”：第三方维护的共享文件夹，用起来几乎和本机文件夹无异。
+
+\origin{§1.2.1，原书 p.10–11}
+
+\subsection*{1.2.2 分布透明（Distribution transparency）}
+目标：\textbf{隐藏}进程与资源物理上分散在多地这一事实。实现方式是
+\textbf{中间件（middleware）}，它为应用提供处处一致的接口，把“在哪、怎么访问”
+藏起来。原书（引 ISO 1995）列出七种透明性：\textbf{访问、位置、重定位、迁移、
+复制、并发、失败}。其中失败透明的核心困难是：\textbf{无法区分“死进程”与
+“只是很慢的进程”}。
+
+\begin{closeread}
+\pair{An important goal of a distributed system is to hide the fact that its processes and resources are physically distributed across multiple computers.}{分布式系统的一个重要目标，是隐藏“其进程与资源在物理上分散于多台计算机”这一事实。}
+\pair{The price for achieving full transparency may be surprisingly high.}{实现完全透明所付出的代价，可能高得惊人。}
+\end{closeread}
+
+\origin{§1.2.2，原书 p.11–15（透明性表见图 1.3）}
+
+\begin{ideabox}[关键权衡：透明到什么程度？]
+透明并非越多越好。跨时区的“早晨报纸”不该假装还按你本地作息；旧金山到
+阿姆斯特丹的往返延迟有物理下限（光速约 35ms 起，实测几百毫秒）；“跨大洲永远一致”
+的复制会让单次更新耗时数秒，藏不住。作者主张：透明应和性能、可理解性一起权衡，
+\textbf{有时显式暴露分布反而更好}（如基于位置的服务）。Waldo 等（1997）指出，
+用 RPC 掩盖分布会导致难以理解的语义，因为过程调用一旦跨失败链路，性质就变了。
+\end{ideabox}
+
+\subsection*{1.2.3 开放性（Openness）}
+开放的分布式系统：其组件能\textbf{被别的系统方便地使用/集成}，自身也常由“来自
+别处”的组件构成。接口通常用 \textbf{IDL} 描述，能精确刻画\textbf{语法}，但
+\textbf{语义}往往只能用自然语言非正式描述。理想规范应\textbf{完整}且\textbf{中立}，
+从而带来\textbf{互操作性（interoperability）}、\textbf{可移植性（portability）}、
+\textbf{可扩展性（extensibility）}。实现灵活性的关键是\textbf{策略（policy）
+与机制（mechanism）分离}。
+
+\begin{closeread}
+\pair{To be open means that components should adhere to standard rules that describe the syntax and semantics of what those components have to offer.}{所谓开放，意味着组件应当遵循统一的规则，这些规则描述了组件所提供的语法与语义。}
+\pair{What we need is a separation between policy and mechanism.}{我们需要的，是把策略与机制分离开来。}
+\end{closeread}
+
+\origin{§1.2.3，原书 p.15–18（Note 1.4 讨论分离过度的代价）}
+
+\subsection*{1.2.4 可靠性（Dependability）}
+可靠性指系统\textbf{被信赖按预期运行的程度}。分布式系统中由于部分失败，
+应假设\textbf{任意时刻总有部分失败在发生}，核心目标是掩盖失败及其恢复，即
+\textbf{容错（fault tolerance）}。要求包括\textbf{可用性、可靠性、安全性
+（safety）、可维护性}。故障三层次：\emph{fault}（成因）→ \emph{error}
+（可能引发失败的状态）→ \emph{failure}（无法履约）。故障按时序分
+\textbf{瞬时/间歇/永久}。
+
+\begin{closeread}
+\pair{Availability is defined as the property that a system is ready to be used immediately.}{可用性被定义为：系统随时处于可供立即使用的状态。}
+\pair{Reliability refers to the property that a system can run continuously without failure.}{可靠性指的是：系统能够持续无故障地运行。}
+\end{closeread}
+
+\origin{§1.2.4，原书 p.18–21}
+
+\begin{ideabox}[可用性 $\neq$ 可靠性]
+每小时随机宕机 1 毫秒的系统，可用性超过 99.9999\%，却\textbf{不可靠}；
+从不崩溃、但每年 8 月停机两周的系统，可靠性高，可用性只有 96\%。
+常用度量：MTTF（平均无故障时间）、MTTR（平均修复时间）、MTBF = MTTF + MTTR。
+\end{ideabox}
+
+\subsection*{1.2.5 安全（Security）}
+“不安全的分布式系统就不可靠。”核心是\textbf{认证（authentication，验证所声称
+的身份）}与\textbf{信任（trust）}。本节只引入最基本密码学工具（详见第 9 章）：
+\textbf{对称密码}（加解密同一密钥）、\textbf{非对称/公钥密码}（公钥加密、
+私钥解密；反向使用即\textbf{数字签名}）、\textbf{哈希函数}（定长、改一点就变、
+不可反推）。
+
+\begin{closeread}
+\pair{In a symmetric cryptosystem, encryption and decryption takes place with a single key.}{在对称密码系统中，加密与解密使用同一把密钥。}
+\pair{In an asymmetric cryptosystem, the keys used for encryption and decryption are different.}{在非对称密码系统中，用于加密和解密的密钥是不同的。}
+\end{closeread}
+
+\origin{§1.2.5，原书 p.21–23（记号表见图 1.4）}
+
+\subsection*{1.2.6 可扩展性（Scalability）}
+按三个维度衡量（Neuman 1994）：\textbf{规模（size）}、\textbf{地理（geographical）}、
+\textbf{行政（administrative）}。规模瓶颈的根因是 CPU、存储与 I/O、网络；
+地理的难点是同步通信延迟、可靠性、带宽与缺乏多点通信；行政最棘手，涉及政策冲突。
+向外扩展（scale out）只有三种手段：\textbf{隐藏通信延迟}、\textbf{分区与分布}、
+\textbf{复制}。复制（含\textbf{缓存}，区别在于缓存由\emph{使用者}而非\emph{所有者}
+决定）的代价是\textbf{一致性}。
+
+\begin{closeread}
+\pair{A system can be scalable regarding its size, meaning that we can easily add more users and resources to the system without any noticeable loss of performance.}{系统在规模上可扩展，意味着我们可以轻松地向系统加入更多用户与资源，而性能没有可察觉的下降。}
+\pair{There are basically only three techniques we can apply: hiding communication latencies, distribution of work, and replication.}{我们基本上只能采用三种技术：隐藏通信延迟、分摊工作、以及复制。}
+\end{closeread}
+
+\origin{§1.2.6，原书 p.24–32（Note 1.5 用排队论分析规模可扩展性）}
+
+\sechead{1.3 A simple classification}{分布式系统的简单分类}
+
+\subsection*{1.3.1 高性能分布式计算}
+\textbf{集群计算（cluster）}：硬件\textbf{同构}，一批相似节点经高速互连，用于
+并行编程；现流行\textbf{多内核（multikernel）}——满配 OS 与轻量内核并存。
+\textbf{网格计算（grid）}：\textbf{异构}，把不同组织的资源聚成\textbf{虚拟组织
+（virtual organization）}。Foster 等的四层架构：fabric / connectivity / resource /
+collective，上接 application；中间三层即“网格中间件”。
+
+\origin{§1.3.1，原书 p.32–37（网格四层见图 1.10）}
+
+\subsection*{1.3.2 分布式信息系统}
+\textbf{分布式事务处理}：事务满足 \textbf{ACID}（原子、一致、隔离、持久）。
+分布式事务常拆成\textbf{嵌套事务}：即使某子事务已提交、其父事务后来中止，
+该子事务结果也必须回滚——所以“持久性”只对\textbf{顶层事务}成立。核心组件是
+\textbf{TP monitor}，按\textbf{分布式提交}协议协调子事务提交。
+\textbf{企业应用集成（EAI）}的常见方式：\textbf{RPC}、\textbf{RMI}、
+\textbf{MOM（发布-订阅）}。
+
+\begin{closeread}
+\pair{The characteristic feature of a transaction is either all of these operations are executed or none are executed.}{事务的特征是：这些操作要么全部执行，要么全部不执行。}
+\pair{A transaction-processing monitor's main task is to allow an application to access multiple server/databases by offering it a transactional programming model.}{事务处理监视器（TP monitor）的主要任务，是通过提供一个事务式编程模型，让应用得以访问多个服务器/数据库。}
+\end{closeread}
+
+\origin{§1.3.2，原书 p.37–43（Note 1.7 讨论四种集成方式）}
+
+\subsection*{1.3.3 普适系统（Pervasive systems）}
+因移动/嵌入式设备而不同于前两类：\textbf{用户与组件的边界模糊}，没有单一
+屏/键接口，而是大量\textbf{传感器}与\textbf{执行器}。三类（有重叠）：
+
+\begin{itemize}
+  \item \textbf{泛在计算（ubiquitous）}：系统\textbf{持续存在}，交互多为“隐式输入”。
+        Poslad（2009）五项要求：分布、交互、情境感知、自治、智能。
+  \item \textbf{移动计算（mobile）}：设备多样且\textbf{位置随时间变化}；MANET 未流行，
+        移动计算回归“移动设备连到服务器”，由此引出 \textbf{MEC（移动边缘计算）}。
+  \item \textbf{传感器网络（sensor networks）}：数十至上千小节点，资源与能耗受限；
+        关键是把网络当作\textbf{一个数据库}（TinyDB 声明式接口），做\textbf{网内处理
+        （in-network processing）}——沿树上传并在汇合处聚合。
+\end{itemize}
+
+\noindent 由 IoT 与云连接，形成 \textbf{云–边–物}层级（图 1.17）：越高层越可靠、
+容量越大、性能越强；越低层越易实现位置相关能力与低延迟，设备数量也越多。
+
+\origin{§1.3.3，原书 p.43–52（云-边-物层级见图 1.17）}
+
+\sechead{1.4 Pitfalls}{陷阱：八个错误假设}
+
+Peter Deutsch（当年在 Sun）总结了人们初次开发分布式应用时的\textbf{八个错误假设}：
+
+\begin{enumerate}[leftmargin=1.6em]
+  \item The network is reliable（网络可靠）
+  \item The network is secure（网络安全）
+  \item The network is homogeneous（网络同构）
+  \item The topology does not change（拓扑不变）
+  \item Latency is zero（延迟为零）
+  \item Bandwidth is infinite（带宽无限）
+  \item Transport cost is zero（传输零成本）
+  \item There is one administrator（只有一个管理员）
+\end{enumerate}
+
+\begin{ideabox}[为什么这八条是全书索引]
+它们正好对应分布式系统独有的性质：可靠性、安全性、异构性、拓扑；延迟与带宽；
+传输成本；行政域。本书几乎每个原理，都是在反驳其中某条假设所产生的问题——
+例如“可靠网络不存在”导致失败透明不可能；“网络本就不安全”单独成章；
+复制是为解决延迟与带宽问题；管理问题穿插在各处。
+\end{ideabox}
+
+\origin{§1.4，原书 p.52–53}
+
+\sechead{1.5 Summary}{小结}
+
+\begin{itemize}
+  \item 分布式系统 = 进程与资源\textbf{充分}分散；去中心化系统 = \textbf{必然}分散。
+        分散本身不是目标，多数分布式选择是为提升可靠性、可扩展性、效率；
+        但中心化系统往往更好管理，做决定前要三思——有时又别无选择。
+  \item 设计目标：共享资源、保证开放、日益重要的安全，以及隐藏分布细节。
+        透明有性能代价且\textbf{永远无法完全实现}；它与可扩展性常相互冲突。
+  \item 系统分类：面向\textbf{计算}（集群→网格→云）、面向\textbf{信息处理}、
+        面向\textbf{普适}（移动、传感器、泛在）。
+  \item 反复出现的陷阱：开发者对底层网络作\textbf{根本错误}的假设，
+        事后很难掩盖由此产生的不良行为。
+\end{itemize}
+
+\origin{§1.5，原书 p.53–54}
+
+\begin{actions}
+  \item 读原书第 1 章对应小节，重点看图 1.1（三种组织）、图 1.3（透明性表）、图 1.10（网格四层）、图 1.17（云-边-物层级）。
+  \item 用“必然 vs 充分”重新审视一个你熟悉的系统（如微信/网盘）：哪些分散是被迫的？哪些是主动的？
+  \item 把你正在做或想做的项目，逐条对照八个错误假设，写下你默认了哪几条。
+  \item 记住三个“反直觉结论”：中心化不必差、透明不是越多越好、可用性 $\neq$ 可靠性。
+\end{actions}

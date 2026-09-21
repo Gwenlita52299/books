@@ -1,0 +1,150 @@
+% ============================================================
+%  Distributed Systems (van Steen & Tanenbaum, 4th ed.)
+%  中英对照学习导读 — 样式与宏包
+%  引擎：XeLaTeX（fontspec / xeCJK / paracol）
+% ============================================================
+
+\usepackage{fontspec}
+\usepackage{xeCJK}
+
+% ---- 字体（macOS 系统字体）----
+\setmainfont{Times New Roman}
+\setsansfont{Helvetica Neue}
+\setmonofont{Menlo}
+\setCJKmainfont{Songti SC}
+\setCJKsansfont{PingFang SC}
+\setCJKmonofont{Songti SC}
+
+% ---- 页面 ----
+\usepackage[a4paper, top=2.4cm, bottom=2.4cm, left=2.0cm, right=2.0cm]{geometry}
+\usepackage{fancyhdr}
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small\itshape Distributed Systems}
+\fancyhead[R]{\small 分布式系统}
+\fancyfoot[C]{\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+% ---- 双语并排 ----
+\usepackage{paracol}
+\columnratio{0.5}
+\setlength{\columnsep}{1.8em}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0.55em}
+\linespread{1.12}
+
+% 对照宏：\src{英文} / \tgt{中文}
+% 每对只在 \src 起始处同步一次（* 号），\tgt 切换时不再同步，避免累积错位。
+\newcommand{\src}[1]{\switchcolumn[0]*\noindent #1\par}
+\newcommand{\tgt}[1]{\switchcolumn[1]\noindent #1\par}
+
+\newenvironment{bitext}{\begin{paracol}{2}\raggedright}{\end{paracol}}
+
+% ---- 标题层级 ----
+\usepackage{titlesec}
+\usepackage{xcolor}
+\definecolor{dsblue}{HTML}{1F4E79}
+\definecolor{dsgray}{HTML}{555555}
+\definecolor{dsbg}{HTML}{F2F6FA}
+
+\titleformat{\chapter}[display]
+  {\normalfont\huge\bfseries\color{dsblue}}
+  {\filright\normalsize\sffamily CHAPTER \thechapter}
+  {1ex}
+  {\Huge}
+\titlespacing*{\chapter}{0pt}{0pt}{24pt}
+
+\titleformat{\section}
+  {\normalfont\Large\bfseries\color{dsblue}}{\thesection}{0.8em}{}
+\titleformat{\subsection}
+  {\normalfont\large\bfseries\color{dsblue}}{\thesubsection}{0.7em}{}
+
+% ---- 列表 ----
+\usepackage{enumitem}
+\setlist{nosep, leftmargin=1.4em}
+
+% ---- 定义/要点框 ----
+\usepackage[most]{tcolorbox}
+\newtcolorbox{notebox}[1][]{
+  breakable, colback=dsbg, colframe=dsblue, boxrule=0.6pt, arc=2pt,
+  left=6pt, right=6pt, top=5pt, bottom=5pt, #1,
+}
+
+\newcommand{\chapterplaceholder}[2]{%
+  \chapter{#1}
+  \begin{center}
+  \begin{minipage}{0.86\textwidth}
+  \itshape\small\color{dsgray}
+  #2
+  \end{minipage}
+  \end{center}
+}
+
+% ---- 双语导读版式 ----
+\newcommand{\sechead}[2]{%
+  \section*{#1\\[0.2em]{\large\normalfont #2}}%
+  \addcontentsline{toc}{section}{#1}%
+}
+
+% 核心论点框
+\newtcolorbox{ideabox}[1][核心论点]{%
+  enhanced, breakable, colback=dsbg, colframe=dsblue!70, boxrule=0.6pt, arc=2pt,
+  left=8pt, right=8pt, top=6pt, bottom=6pt,
+  colbacktitle=dsblue, coltitle=white,
+  fonttitle=\bfseries\sffamily\small,
+  title={#1},
+}
+
+% 术语框：\term{英文}{中文}{解释}
+\newtcolorbox{termbox}[1][术语]{%
+  breakable, colback=white, colframe=dsblue!45, boxrule=0.5pt, arc=2pt,
+  left=8pt, right=8pt, top=5pt, bottom=5pt,
+  colbacktitle=dsblue!85, coltitle=white,
+  fonttitle=\bfseries\sffamily\small,
+  title={#1},
+}
+\newcommand{\term}[3]{%
+  \begin{termbox}
+  {\bfseries #2}\ {\small\color{dsgray}(#1)}\par
+  \vspace{2pt}{\small #3}
+  \end{termbox}%
+}
+
+% 解读（中文评论）
+\newcommand{\commentary}[1]{%
+  \par\medskip
+  \noindent{\small\bfseries\color{dsblue}解读\ }\ignorespaces
+  {\small #1}\par
+}
+
+% 实践清单
+\newenvironment{actions}{%
+  \par\medskip\noindent{\small\bfseries\color{dsblue}实践清单}\par
+  \begin{itemize}[leftmargin=1.4em,itemsep=1pt,topsep=2pt]
+    \small
+}{%
+  \end{itemize}\par
+}
+
+% ---- 原文精读：关键句中英对照 ----
+\newenvironment{closeread}{%
+  \par\medskip
+  \noindent{\small\bfseries\color{dsblue}原文精读}\par\smallskip
+  \begin{paracol}{2}\raggedright
+}{%
+  \end{paracol}\par
+}
+% 一对关键句：\pair{英文原句}{中文}
+\newcommand{\pair}[2]{\src{#1}\tgt{#2}}
+
+% ---- 原文定位（页码兜底）----
+\newcommand{\origin}[1]{%
+  \par\smallskip
+  \noindent{\footnotesize\color{dsgray}原文定位：\,#1}\par
+}
+
+% ---- 杂项 ----
+\usepackage{hyperref}
+\hypersetup{colorlinks=true, linkcolor=dsblue, urlcolor=dsblue}
+\usepackage{booktabs}
+\usepackage{longtable}

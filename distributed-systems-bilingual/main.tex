@@ -1,0 +1,35 @@
+% ============================================================
+%  Distributed Systems (van Steen & Tanenbaum, 4th ed.)
+%  中英对照学习导读
+%  编译：xelatex main.tex （见 build.sh）
+% ============================================================
+\documentclass[11pt,openany]{book}
+
+\input{style/preamble}
+
+\title{\Huge Distributed Systems\\[0.3em]
+       \LARGE \normalfont 分布式系统\\[0.6em]
+       \large \normalfont 中英对照学习导读}
+\author{Maarten van Steen \and Andrew S. Tanenbaum}
+\date{}
+
+\begin{document}
+
+\frontmatter
+\maketitle
+\tableofcontents
+
+\mainmatter
+
+\input{content/00-front-matter}
+\input{content/01-introduction}
+\input{content/02-architectures}
+\input{content/03-processes}
+\input{content/04-communication}
+\input{content/05-coordination}
+\input{content/06-naming}
+\input{content/07-consistency-and-replication}
+\input{content/08-fault-tolerance}
+\input{content/09-security}
+
+\end{document}

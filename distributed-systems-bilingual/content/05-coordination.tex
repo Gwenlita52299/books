@@ -1,0 +1,458 @@
+% ============================================================
+%  第 5 章 Coordination 导读
+% ============================================================
+\chapter{Coordination}
+\begin{center}
+\begin{minipage}{0.9\textwidth}
+\itshape\small\color{dsgray}
+本章讲进程之间如何\textbf{协调与同步}。先处理“真实时间”：时钟同步（UTC、NTP、RBS）；
+再转向只需相对顺序的\textbf{逻辑时钟}（Lamport、向量时钟）；接着是\textbf{分布式互斥}
+的四类算法与\textbf{选举算法}（bully、ring、ZooKeeper、Raft、PoW/PoS）；然后是
+\textbf{基于 gossip 的协调}（聚合、peer sampling、覆盖网构建、安全）、发布-订阅中的
+\textbf{分布式事件匹配}，最后是用坐标刻画邻近性的\textbf{定位系统}。
+\end{minipage}
+\end{center}
+
+\sechead{5.1 Clock synchronization}{时钟同步}
+
+集中式系统里时间是无歧义的：进程向 OS 要时间即可，后问的一定不小于先问的。
+分布式系统则没有全局共享时钟。作者用 Unix \texttt{make} 说明后果：若
+\texttt{output.c} 的修改时间因机器时钟偏慢而被标成早于 \texttt{output.o}，
+\texttt{make} 就不会重新编译，可执行文件便混入新旧目标码。因此本章从最基础的问题问起：
+\textbf{能否同步分布式系统中的所有时钟？}
+
+\subsection*{5.1.1 物理时钟（Physical clocks）}
+
+计算机里所谓的“clock”其实更像 \textbf{timer}：石英晶振按固定频率振荡，
+每振荡一次计数器减一，减到零产生中断（一次 \textbf{clock tick}）并从保持寄存器重装。
+单机时钟即使有偏差也无妨，因为所有进程共享同一时钟、彼此一致；但多台机器各有晶振时，
+频率无法完全一致，软件时钟会逐渐不同步，这种时间值之差叫 \textbf{clock skew}。
+实时系统需要外部物理时钟，于是产生两个问题：如何与真实世界时钟对齐、以及如何彼此对齐。
+
+\textbf{UTC} 是全世界民用计时的基准：从太阳时（mean solar second）到 1948 年
+原子钟（铯 133 的 9,192,631,770 次跃迁定义 1 秒），再到 \textbf{TAI}；
+因地球自转变慢，BIH 在 TAI 与太阳时相差达 800 msec 时插入 \textbf{leap second}，
+得到 \textbf{Coordinated Universal Time（UTC）}。UTC 可由短波电台（±10 msec）、
+地球同步卫星（0.5 msec）乃至多星组合的地面 timeserver（50 ns）提供。
+
+\subsection*{5.1.2 时钟同步算法（Clock synchronization algorithms）}
+
+算法目标用两个界刻画：\textbf{precision}（内部同步，任意两机软件时钟偏差
+$|C_p(t)-C_q(t)| \le \pi$）与 \textbf{accuracy}（外部同步，相对 UTC 偏差
+$|C_p(t)-t| \le \alpha$）。一组 accuracy 为 $\alpha$ 的时钟必然 precision 为
+$\pi = 2\alpha$，反之不成立。硬件时钟有 \textbf{clock drift rate}（典型石英约
+$10^{-6}$ 秒/秒，即每年约 31.5 秒）。若两钟反向漂移，同步后经 $\Delta t$ 可相差
+$2\rho\cdot\Delta t$，故要保证 precision $\pi$，至少每 $\pi/(2\rho)$ 秒重新同步。
+
+\textbf{Network Time Protocol（NTP）}源自 Cristian 的方法：客户端联系 timeserver，
+用四个时间戳 $T_1$–$T_4$ 估算 offset
+$\theta = \dfrac{(T_2-T_1)+(T_3-T_4)}{2}$ 与 delay
+$\delta = \dfrac{(T_4-T_1)-(T_3-T_2)}{2}$，缓存八对 $( \theta, \delta )$ 取
+$\delta$ 最小者。时间\textbf{不能倒流}，调整须渐进（如每次中断只加 9 msec 或 11 msec）。
+NTP 按 \textbf{stratum} 分级：stratum-1 服务器接 UTC 接收机或原子钟，只向更低层级同步。
+
+无线传感网不适用上述假设（资源受限、多跳昂贵、要省电），于是有
+\textbf{Reference Broadcast Synchronization（RBS）}：只让\textbf{接收方}同步、
+把发送方排除在外，从而消除“构造消息”和“访问信道”两项不确定延迟，只留传播时间；
+用线性回归把 offset 拟合成函数 $\mathrm{Offset}[p,q](t) = \alpha t + \beta$，
+既更准又不必调整本地时钟（省电）。
+
+\begin{closeread}
+\pair{In a centralized system, time is unambiguous.}{在集中式系统中，时间是无歧义的。}
+\pair{This difference in time values is called clock skew.}{这种时间值上的差异被称为时钟偏移（clock skew）。}
+\pair{The whole idea of clock synchronization is that we keep clocks precise, referred to as internal synchronization or accurate, known as external synchronization.}{时钟同步的核心思想是：让时钟保持精确（precise），称为内部同步；或保持准确（accurate），称为外部同步。}
+\end{closeread}
+
+\begin{closeread}
+\pair{The problem, of course, is that when contacting the server, message delays will have outdated the reported time.}{问题当然在于：联系服务器的过程中，消息延迟会使报告的时间变得过时。}
+\pair{Of course, time is not allowed to run backward.}{当然，时间不允许倒流。}
+\pair{Reference broadcast synchronization (RBS) is a clock synchronization protocol that is quite different from other proposals.}{参考广播同步（RBS）是一种与其他方案相当不同的时钟同步协议。}
+\end{closeread}
+
+\begin{ideabox}[Note 5.2：精确计时的价值与 TrueTime]
+若能给事件打上无限精度的时间戳，生活会简单得多。Google 的 \textbf{Spanner} 为此实现
+\textbf{TrueTime}，提供 \texttt{TT.now()}（返回区间 $[T_{lwb}, T_{upb}]$）、
+\texttt{TT.after(t)}、\texttt{TT.before(t)}，并保证区间是真界；$\epsilon = T_{upb}-T_{lwb}$
+仅约 6 ms。它靠每个数据中心的 time-master（部分配 GPS 接收机、部分配原子钟，
+彼此高度独立以容错）与 time-slave 查询多个 master 实现，并用 Marzullo--Owicki 算法剔除离群值。
+有了 6 ms 保证，跨服务器给事务打时间戳成为可能，代价是读取结果可能需等 $\epsilon$ 时间。
+\end{ideabox}
+
+\origin{§5.1，原书 p.249–260（图 5.1 时钟偏差、图 5.5 从 timeserver 取时、图 5.6 RBS 关键路径）}
+
+\sechead{5.2 Logical clocks}{逻辑时钟}
+
+精确的真实时间往往并非必需：只要能对事件\textbf{顺序}达成一致即可。对 \texttt{make} 而言，
+只需两节点都同意 \texttt{input.o} 已被新 \texttt{input.c} 取代。Lamport（1978）指出：
+若两进程不交互，它们的时钟无须同步；真正重要的是事件发生的\textbf{次序}。
+这类时钟统称 \textbf{logical clocks}。
+
+\subsection*{5.2.1 Lamport 逻辑时钟（Lamport's logical clocks）}
+
+Lamport 定义 \textbf{happens-before} 关系 $a \rightarrow b$（所有进程都同意
+$a$ 先于 $b$）。它可直接观察到两种情形：同进程内 $a$ 先于 $b$；以及 $a$ 是发消息、
+$b$ 是收该消息。happens-before 是\textbf{传递}的；若两事件所在进程从不交换消息，
+则 $x \rightarrow y$ 与 $y \rightarrow x$ 都不成立，称二者 \textbf{concurrent}。
+所需的是一个时间函数 $C$，满足：若 $a \rightarrow b$ 则 $C(a) < C(b)$，
+且 $C$ 只增不减（修正只能加正值）。
+
+实现只需每进程 $P_i$ 维护本地计数器 $C_i$：（1）执行事件前 $C_i \leftarrow C_i + 1$；
+（2）发消息时令时间戳 $ts(m) = C_i$；（3）收到消息时先
+$C_j \leftarrow \max\{C_j, ts(m)\}$，再执行第 1 步并投递。若要不出现相同时间，
+可用 $\langle \text{时间}, \text{进程号} \rangle$ 打破平局，如 $\langle 40, i\rangle < \langle 40, j\rangle$
+（当 $i<j$）。
+
+\medskip\noindent 应用：\textbf{全序多播（totally ordered multicasting）}。以跨纽约、旧金山
+复制的银行账户为例：一笔“存 100 美元”与一笔“加 1\% 利息”若在两副本上以不同顺序执行，
+会得到 \$1,111 与 \$1,110 的不一致结果。做法是每条消息带发送者逻辑时间戳、放入本地队列、
+并向其他进程多播 ACK；仅当消息位于队首且已被所有进程确认时才投递。由于各进程队列副本相同，
+所有消息处处以同一顺序投递，即 \textbf{state machine replication}。
+
+\begin{closeread}
+\pair{In a seminal paper, Lamport [1978] showed that although clock synchronization is possible, it need not be absolute.}{在一篇开创性论文中，Lamport [1978] 指出：尽管时钟同步是可能的，但它不必是绝对的。}
+\pair{If two events, x and y, happen in different processes that do not exchange messages (not even indirectly via third parties), then x $\rightarrow$ y is not true, but neither is y $\rightarrow$ x.}{如果两个事件 x 和 y 发生在不交换消息（甚至不通过第三方间接交换）的不同进程中，那么 x $\rightarrow$ y 不成立，y $\rightarrow$ x 也不成立。}
+\pair{These time values must have the property that if a $\rightarrow$ b, then C(a) < C(b).}{这些时间值必须具有这样的性质：若 a $\rightarrow$ b，则 C(a) < C(b)。}
+\end{closeread}
+
+\subsection*{5.2.2 向量时钟（Vector clocks）}
+
+Lamport 时钟的局限是\textbf{不捕获因果}：由 $C(a) < C(b)$ 不能推出 $a$ 确实先于 $b$。
+\textbf{vector clocks} 弥补这一点：每进程 $P_i$ 维护向量 $VC_i$，
+$VC_i[i]$ 是 $P_i$ 本地已发生的事件数，$VC_i[j]$ 是 $P_i$ 所知的 $P_j$ 的本地时间。
+更新规则与 Lamport 类似，但收消息时对每个 $k$ 取
+$VC_j[k] \leftarrow \max\{VC_j[k], ts(m)[k]\}$（相当于合并因果历史）。
+定义 $ts(a) < ts(b)$ 当且仅当对所有 $k$ 有 $ts(a)[k] \le ts(b)[k]$ 且至少一个分量严格更小；
+据此可判断 $m_4$ 是否可能因果依赖 $m_2$，或二者可能冲突。
+
+\begin{closeread}
+\pair{The problem is that Lamport clocks do not capture causality.}{问题在于 Lamport 时钟并不捕获因果关系。}
+\pair{In practice, causality is captured by means of vector clocks.}{在实践中，因果关系是通过向量时钟来捕获的。}
+\end{closeread}
+
+\begin{commentary}
+Lamport 时钟与向量时钟的分工要记牢：前者给\textbf{全序}，用于全序多播、互斥；
+后者给\textbf{偏序}，用于判断“是否可能因果相关”。Note 5.4 进一步用向量时钟实现
+\textbf{因果有序多播}：仅当 $ts(m)[i] = VC_j[i] + 1$ 且对所有 $k \neq i$ 有
+$ts(m)[k] \le VC_j[k]$ 时才投递消息 $m$，从而保证“可能因果先于它的消息都已收到”。
+Note 5.4 也讨论了经典的争议：把排序交给中间件还是应用，涉及
+\textbf{end-to-end principle}。
+\end{commentary}
+
+\origin{§5.2，原书 p.260–272（图 5.7 Lamport 算法修正时钟、图 5.12 向量时钟捕获因果、图 5.13 强制因果通信）}
+
+\sechead{5.3 Mutual exclusion}{互斥}
+
+多进程并发访问共享资源时必须保证互斥，否则资源可能被破坏或不一致。
+分布式互斥算法分两大类：\textbf{token-based}（传递唯一 token，持有者可访问；
+优点是易保证无饥饿、无死锁，缺点是 token 一旦丢失（如持有者崩溃）需复杂过程重建
+且必须保证唯一）与 \textbf{permission-based}（先取得其他进程许可）。
+
+\subsection*{5.3.1 集中式算法（A centralized algorithm）}
+选一个协调者（coordinator）：进程请求资源，无冲突则立即授予；有冲突则挂起请求排队。
+每次使用资源仅需 3 条消息（request、grant、release），简单、公平、无饥饿。
+缺点是协调者\textbf{单点失败}（崩溃则整个系统可能瘫痪，且进程无法区分“协调者死了”与“被拒绝”），
+大规模下还可能是性能瓶颈。但作者指出其简单性的收益常胜过缺点，且分布式方案未必更好。
+
+\subsection*{5.3.2 分布式算法（A distributed algorithm）}
+Ricart--Agrawala（1981）：基于 Lamport 全序。请求者向所有进程（含自己）发
+(资源名, 进程号, 逻辑时间)；收方三种处理：不感兴趣则回 OK；已持有则不回、排队；
+也想要则比较时间戳，小者胜。共需 $2(N-1)$ 条消息（$N-1$ 请求 + $N-1$ OK），
+无死锁无饥饿，但有 $N$ 个失败点（任一进程崩溃都会阻塞全体），且最好用于成员固定的小组；
+可改为只需\textbf{多数}许可。
+
+\subsection*{5.3.3 token-ring 算法（A token-ring algorithm）}
+构造逻辑环，token 沿环点对点传递，持有者需要则访问、不需要则传下去。
+正确性直观：任一时刻仅一人持有 token，环序明确故无饥饿。问题是 token 丢失难检测
+（token 再现间隔无上界，一小时没见到不代表丢了），但进程崩溃恢复较容易
+（收到 token 需确认，邻居可发现死进程并跳过它）。
+
+\subsection*{5.3.4 去中心化算法（A decentralized algorithm）}
+Lin 等（2004）投票法：资源复制 $N$ 份，每份有协调者；访问需取得 $m > N/2$ 个协调者的多数票。
+假设协调者崩溃后快速恢复但\textbf{忘记}此前投过的票（相当于任意时刻重置），
+这可能错误地再次授权。设重置概率 $p$，$k$ 个协调者重置的概率
+$P[k] = \binom{m}{k} p^k (1-p)^{m-k}$；当 $f \ge 2m - N$ 时正确性被破坏，
+其概率 $\sum_{k=2m-N}^{m} P[k]$。图 5.17 表明该概率可低到可忽略。
+缺点：许多节点争抢同一资源时利用率骤降，可能谁都凑不够票。
+
+\begin{ideabox}[Note 5.5：四种互斥算法对比]
+\begin{tabular}{@{}lll@{}}
+\toprule
+算法 & 每次进出的消息数 & 进入前延迟（MTTU） \\
+\midrule
+集中式 & 3 & 2 \\
+分布式 & $2(N-1)$ & $2(N-1)$ \\
+token ring & $1, \ldots, \infty$ & $0, \ldots, N-1$ \\
+去中心化 & $2kN + (k-1)N/2 + N$ & $2kN + (k-1)N/2$ \\
+\bottomrule
+\end{tabular}
+
+\smallskip
+几乎所有这些算法在崩溃面前都很脆弱，需要额外复杂度来避免“一崩俱崩”。颇具讽刺的是：
+分布式算法通常比集中式更易受崩溃影响。因此\textbf{集中式互斥被广泛使用}并不奇怪——
+行为易理解，且提高集中服务器容错相对容易。
+\end{ideabox}
+
+\subsection*{5.3.5 例：用 ZooKeeper 实现简单锁}
+ZooKeeper 为分布式协调提供支持（锁、选举、监控等），设计原则是\textbf{没有阻塞原语}：
+客户端发消息后立即得到响应。它维护一棵树状 namespace，节点分
+\textbf{persistent}（显式创建删除）与 \textbf{ephemeral}（连接关闭或过期即自动删除）。
+不支持阻塞，就需要\textbf{通知机制}：客户端订阅某节点/分支的变化，变化时收到消息。
+为避免基于过期信息更新，用\textbf{版本号}：\texttt{W(n,k)a} 表示“假设节点 n 当前版本为 k 时写入 a”，
+版本不符则写失败，客户端需重读后再决定。实现锁很直接：创建 \texttt{/lock} 成功即获得锁，
+删除即释放；创建失败者订阅 \texttt{/lock} 的删除通知、本地阻塞，收到通知后重试。
+需处理细节：允许多次尝试后放弃；持有者崩溃时确保节点被删除；以及“订阅前锁已被释放”的竞态。
+
+\begin{closeread}
+\pair{Fundamental to distributed systems is the concurrency and collaboration among multiple processes.}{分布式系统的根本在于多进程之间的并发与协作。}
+\pair{In token-based solutions mutual exclusion is achieved by passing a special message between the processes, known as a token.}{在基于令牌的方案中，互斥是通过在进程间传递一条称为令牌（token）的特殊消息来实现的。}
+\pair{It is easy to see that the algorithm guarantees mutual exclusion: the coordinator lets only one process at a time access the resource.}{很容易看出该算法保证了互斥：协调者一次只允许一个进程访问资源。}
+\end{closeread}
+
+\origin{§5.3，原书 p.272–283（图 5.14 集中式、图 5.15 分布式、图 5.16 token ring、图 5.18 算法对比、图 5.19 ZooKeeper 版本控制）}
+
+\sechead{5.4 Election algorithms}{选举算法}
+
+许多分布式算法需要某进程充当 coordinator/initiator。若所有进程完全相同便无法选出，
+故假设每进程有唯一标识 $id(P)$，选举算法通常\textbf{找出标识最大者}并指定为协调者；
+还假设每进程知道所有其他进程的标识，但不知道谁在线。目标是选举开始后，
+所有进程就“新协调者是谁”达成一致。
+
+\subsection*{5.4.1 bully 算法（The bully algorithm）}
+Garcia-Molina（1982）：进程 $P_k$ 发现协调者无响应即发起选举，向所有标识更高的进程
+发 ELECTION；无人应答则自己当选；有人应答则由对方接手。收到 ELECTION 者回 OK 并（若未在选举中）
+自行发起选举。最终只剩一个胜者并广播 COORDINATOR。此前宕机者恢复后若标识最高便重新当选，
+故“城里块头最大的总是赢”，得名 bully。
+
+\subsection*{5.4.2 环算法（A ring algorithm）}
+进程知道自己的后继。发现协调者失效者构造含自身标识的 ELECTION 沿环传递，
+每步加入自己的标识（使自己成为候选）；消息绕回发起者时改为 COORDINATOR 再绕一圈，
+通告新协调者（标识最高者）与新环成员。多个选举可并行，各自绕环，最多多耗些带宽，无害。
+
+\subsection*{5.4.3 例：ZooKeeper 中的领导者选举}
+ZooKeeper 用一小组服务器组成 \textbf{ensemble}，对客户端看似单服务器，内部由 \textbf{leader}
+协调，其余为 \textbf{follower}（最新状态的备份）。默认选举是简化的 bully：每台服务器有
+标识 $id(s)$ 与最新事务计数器 $tx(s)$；怀疑 leader 出问题时广播 $(voteID, voteTX)$，
+并维护 $leader(s)$ 与 $lastTX(s)$。规则：若 $lastTX(s^*) < voteTX$ 则采纳对方的
+$voteID$ 与 $voteTX$；若相等而 $leader(s^*) < voteID$ 则只更新 $leader$。
+若某服务器认为自己应成为 leader 且尚未声明，就广播 $(id(s^*), tx(s^*))$；
+收到足够多 follower（多数）即可自任 leader。
+
+\subsection*{5.4.4 例：Raft 中的领导者选举}
+Raft 让少数（通常五个）已知的复制服务器执行相同操作、且顺序一致，故需选出一个 leader
+规定顺序。协议允许消息丢失与服务器崩溃。每台服务器处于 follower、candidate、leader 三态之一，
+时间划分为\textbf{term}（每 term 至多一个 leader，term 编号从 0 起）。leader 定期发
+心跳。follower 超时后进入 candidate 并发起选举（term 加一、广播）：若收到同 term 的
+“自称 leader”则退回 follower；若获得多数票则升为 leader；否则等 candidate 超时后重新选举。
+为避免全体同时成为 candidate 而选不出，各服务器\textbf{随机化超时}，通常只剩单一 candidate。
+
+\subsection*{5.4.5 大规模系统中的选举}
+无许可区块链中候选者可能极多，问题变得棘手。\textbf{Proof of work}：候选者进行
+\textbf{计算竞赛}——对已验交易块的哈希（digest）再找 \textbf{nonce}，使两者合并后的哈希
+具有预定数量的前导零。前导零越多越难（64 个前导零时平均需检查约 180 亿亿个 nonce，
+超级计算机约 10 分钟、普通笔记本约 100 年）。难度被刻意调整以维持预期时长
+（Bitcoin 约 10 分钟），全体验证者用同一公开方法调整，完全去中心化。
+缺点：时长过长则吞吐低（10 分钟、每块约 2500 笔，约合每秒 4 笔）；时长过短则易出现
+多个胜者、产生分叉，回滚会作废许多交易。
+\textbf{Proof of stake}：以区块链上的 token 为权重，用公开函数在 $1..N$ 中随机取 $k$，
+第 $k$ 个 token 的持有者成为 leader，token 越多越可能当选。它省去算力浪费，
+但 leader 无须预付成本，故通常更易受安全攻击。
+
+\begin{ideabox}[Note 5.7：选取 superpeer]
+有时需要选出\textbf{多个}节点（如 P2P 中的 super peer），要求：普通节点低延迟可达、
+super peer 均匀分布、占比预设、每个服务节点数有上限。在 DHT 系统中可把标识空间的一段
+（如前 $\lceil \log_2 N \rceil$ 位）留给 super peer；在几何空间方法中，把 $N$ 个
+\textbf{互斥的 token} 随机散布到节点上，token 间施加\textbf{斥力}并通过 gossip 传播，
+使它们均匀铺开，持有 token 达一定时间者晋升为 superpeer。
+\end{ideabox}
+
+\subsection*{5.4.6 无线环境中的选举}
+传统选举假设消息可靠、拓扑不变，这在移动环境不成立。Vasudevan 等（2004）的方案
+可处理节点失败与网络分区，且能选出\textbf{最优}而非随机的 leader：源节点广播 ELECTION，
+首次收到者认发送者为父并向邻居转发（父除外）；叶子节点回传自身容量（如电池寿命），
+逐层向上比较，最终源节点得知最佳候选并广播。多个选举并发时，各源用唯一标识标记，
+节点只参与标识最高的那个。
+
+\begin{closeread}
+\pair{Many distributed algorithms require one process to act as coordinator, initiator, or otherwise perform some special role.}{许多分布式算法需要某个进程充当协调者、发起者，或扮演某种特殊角色。}
+\pair{In general, election algorithms attempt to locate the process with the highest identifier and designate it as coordinator.}{一般来说，选举算法试图找到标识最大的进程，并将其指定为协调者。}
+\pair{Thus the biggest guy in town always wins, hence the name ``bully algorithm.''}{因此，城里块头最大的那个总是获胜——bully 算法之名由此而来。}
+\end{closeread}
+
+\origin{§5.4，原书 p.283–297（图 5.20 bully、图 5.21 环选举、图 5.22 ZooKeeper 选举、图 5.24 无线选举）}
+
+\sechead{5.5 Gossip-based coordination}{基于 gossip 的协调}
+
+gossip（epidemic）协议以指数速度传播信息。本节看三个应用：聚合、大规模 peer sampling、
+覆盖网构建，以及安全 gossip。
+
+\subsection*{5.5.1 聚合（Aggregation）}
+最广为人知的应用是传播更新；gossip 也可用于\textbf{聚合信息}。每个节点 $P_i$ 初始取
+任意值 $v_i$，与 $P_j$ 交换后双方都更新为 $v_i, v_j \leftarrow (v_i+v_j)/2$，
+最终所有节点收敛到初值的平均。若令 $P_1$ 为 1、其余为 0，则每节点算出的平均为 $1/N$，
+于是可用 $1/v_i$ 估计系统规模。节点频繁进出时可用 \textbf{epoch} 重置计算。
+也可用 $v_i, v_j \leftarrow \max\{v_i, v_j\}$ 随机选出发起者（保留初值 $m_i$，
+$m_i < v_i$ 者出局，乐观地“在被证明不是赢家前假设自己是赢家”）。
+
+\subsection*{5.5.2 peer-sampling 服务（A peer-sampling service）}
+epidemic 协议需要节点能从全网\textbf{随机}选到另一节点，但大网络中节点没有全局视图。
+解决办法是用 epidemic 协议本身构建完全去中心化的 \textbf{peer-sampling service（PSS）}：
+每节点维护 $c$ 个邻居的 \textbf{partial view}，条目带 age。两个线程协作：
+active 线程选 peer、构造 $c/2+1$ 条目的列表并等待回应；passive 线程对称处理。
+关键操作：\texttt{selectPeer}（从本地 partial view 随机选邻居）、
+\texttt{selectToSend}（挑选要发送的条目）、\texttt{selectToKeep}（合并、去重、裁剪到 $c$ 条）。
+只要定期交换，从动态变化的 partial view 中随机选取，在统计上与从全网随机选取不可区分。
+常用实现是 Cyclon。
+
+\subsection*{5.5.3 基于 gossip 的覆盖网构建（Gossip-based overlay construction）}
+结构化与非结构化 P2P 并非泾渭分明：通过精心交换和挑选 partial view 条目，
+可构造并维护特定拓扑。采用\textbf{两层}：底层是非结构化 P2P，提供 peer-sampling 服务；
+上层在底层传来的 partial view 上再做选择（如按到某节点的距离排序的 \textbf{ranking function}），
+得到符合目标拓扑的邻居表。例如对 $N\times N$ 的逻辑网格维护 $c$ 个最近邻，
+最终会演化出二维 \textbf{torus}。若只用上层、只交换“最优”链接，节点可能形成封闭集合
+（类似爬山陷入局部最优），因此\textbf{引入随机性}至关重要。
+
+\subsection*{5.5.4 安全 gossip（Secure gossiping）}
+gossip 的同步速度也是其脆弱性：传播正确信息的时间同样在传播虚假信息。
+一个例子是 \textbf{hub attack}：$c$ 个串通攻击者只返回彼此引用，逐渐污染良性节点的 partial view。
+在 10 万节点、partial view 大小 30、仅 30 个攻击者的例子中，不到 300 轮所有良性节点的
+partial view 就只含攻击者。可用\textbf{indegree 分布}检测：正常 Cyclon 的入度近似正态，
+受攻击后分布变宽、左移，最终几乎所有节点入度为 0（无人被引用）。Jesi 等（2010）的策略
+迫使攻击者守规矩：良性节点用返回的链接更新视图或\textbf{收集统计}，并可同时发起多个交换
+（最终只处理一个回复），使攻击者陷入两难——总返回同伙就会暴露，于是只能偶尔按规则行事，
+攻击因而失效。此外，允许\textbf{推送}的系统中攻击者可用高频推送快速污染，故有研究主张
+只允许\textbf{拉取}；聚合场景中攻击者可能故意返回错误值（如恒返回 $v_A$ 使平均收敛到 $v_A$），
+只能靠检测“未按协议行事”来缓解。
+
+\begin{closeread}
+\pair{An important aspect in epidemic protocols is the ability of a node P to choose another node Q at random from all available nodes in the network.}{epidemic 协议的一个重要方面是：节点 P 能从网络中所有可用节点里随机选出另一节点 Q。}
+\pair{The crucial point is the construction of a new partial view.}{关键在于新 partial view 的构造。}
+\pair{Gossiping is an attractive means for coordination. However, the speed by which a large collection of nodes manages to synchronize, is also an inherent vulnerability.}{gossip 是一种有吸引力的协调手段。然而，大量节点得以同步的速度，本身也是一种固有脆弱性。}
+\end{closeread}
+
+\origin{§5.5，原书 p.297–306（图 5.25 PSS 两线程、图 5.27 torus 覆盖网、图 5.29 hub 攻击速度、图 5.30 入度分布）}
+
+\sechead{5.6 Distributed event matching}{分布式事件匹配}
+
+\textbf{事件匹配}（更准确说是\textbf{通知过滤}）是发布-订阅系统的核心：订阅者用订阅 $S$
+说明感兴趣的事件，发布者发布通知 $N$，系统判断 $S$ 是否匹配 $N$，匹配则把 $N$ 送达订阅者。
+至少要做两件事：把订阅与事件匹配、以及在匹配时通知订阅者。可设函数 \texttt{match(S,N)}。
+当订阅表达力强（如基于内容的发布-订阅）时，匹配函数难以分布到多台服务器，会带来严重的
+可扩展性问题。
+
+\subsection*{5.6.1 集中式实现（Centralized implementations）}
+最朴素的做法是一台集中服务器保存所有订阅，发布通知时逐一比对。
+它可扩展性差，但在匹配高效且服务器算力足够时对许多场景可行（如 Linda tuple space）。
+扩展办法是\textbf{确定性地}把工作分到多台服务器：用 \texttt{sub2node(S)} 与
+\texttt{not2node(N)} 把订阅/通知映射到非空服务器子集（\textbf{rendezvous nodes}），
+约束是二者交集非空；topic-based 系统常用对 topic 名做哈希来满足。
+进一步可把多台 broker 组织成覆盖网，用 flooding 路由通知：要么订阅存于每个 broker、
+通知只在单个 broker 发布；要么订阅只存一个 broker、通知广播到所有 broker（匹配被分散，
+负载更均衡）。TIB/Rendezvous 用主题关键词（如 \texttt{news.comp.*.books}）与
+rendezvous daemon 实现。若订阅更富表达力（范围、包含、前后缀等，甚至类 SQL 谓词），
+可扩展性易成问题，可能需要退回到 topic-based。
+
+\subsection*{5.6.2 安全发布-订阅方案（Secure publish-subscribe solutions）}
+发布-订阅的特点是发布者与订阅者\textbf{引用解耦}（可能还有时间解耦），
+安全系统需在保证\textbf{互相匿名}的同时传递消息。用可信 broker 简单，但云端第三方是否可信
+存疑，且消息可能含依法不得泄露的数据（如病历）。于是产生冲突：既要匿名，又不能信任 broker
+看内容，还要保证可用性与只送达合法订阅者。这本质是\textbf{可搜索加密}问题。
+\textbf{PEKS}（Public Key Encryption with Keyword Search）是重要技术：消息 $m$ 与关键词
+$KW_1,\dots,KW_n$ 以公钥 $PK$ 存为
+$m^* = [PK(m)\,|\,PEKS(PK,KW_1)\,|\,\cdots\,|\,PEKS(PK,KW_n)]$；
+为每个关键词生成 \textbf{trapdoor}，broker 用它判断标签 $W$ 是否属于该发布，
+匹配则返回 $PK(m)$ 由订阅者用私钥 $SK$ 解密。该方案通常假设 broker 是
+\textbf{honest-but-curious} 且不与双方串通；Cui 等（2021）的系统则可处理串通 broker。
+
+\begin{closeread}
+\pair{Event matching, or more precisely, notification filtering, is at the heart of publish-subscribe systems.}{事件匹配，更准确地说通知过滤，是发布-订阅系统的核心。}
+\pair{Obviously, this is not a very scalable solution.}{显然，这不是一个可扩展性很好的方案。}
+\pair{In practice, expressive subscriptions take the form of (attribute,value) pairs in which a value returns as an expression on the possible values for the specified attribute.}{在实践中，表达力强的订阅采取 (属性, 值) 对的形式，其中值是对该属性可能取值的一个表达式。}
+\end{closeread}
+
+\origin{§5.6，原书 p.306–315（图 5.31 TIB/Rendezvous、图 5.32--5.33 选择性路由与过滤器、图 5.34 范围查询分组、图 5.35 隐私保护发布-订阅）}
+
+\sechead{5.7 Location systems}{定位系统}
+
+跨广域网的大系统中常需考虑\textbf{邻近性}：覆盖网里相邻的两个进程在底层网络中可能相距很远，
+若它们频繁通信，最好在物理上也靠近。本节看用位置技术协调进程放置与通信。
+
+\subsection*{5.7.1 GPS（Global Positioning System）}
+GPS 是 1978 年发射的卫星分布式系统，用至多 72 颗卫星（约 2 万公里高），
+每颗带至多四个原子钟，持续广播位置并给消息打本地时间戳。二维情形下三颗卫星的距离圆交于一点；
+三维则需四颗卫星以解经度、纬度、高度与接收机时钟偏差 $\Delta_r$ 四个未知数
+（测得距离 $\tilde{d}_i = d_i + c\cdot\Delta_r$）。误差来源众多（原子钟不完全同步、
+卫星位置不精确、接收机时钟有限精度、信号在电离层变慢等），平均约 5–10 米；
+差分 GPS 可进一步改善。
+
+\subsection*{5.7.2 当 GPS 不可用时（When GPS is not an option）}
+GPS 通常无法在室内使用，可用大量 WiFi 接入点：若已知接入点坐标且能估计距离，
+检测到三个接入点即可定位。难点是确定接入点坐标，常用 \textbf{war driving}：
+用带 GPS 的设备边移动边记录观测到的接入点（由 SSID 或 MAC 地址标识），
+在多个位置检测到后才能估算，简单方法是取\textbf{质心}
+$\vec{x}_{AP} = \frac{\sum_i \vec{x}_i}{N}$，也可按信号强度加权。
+精度受各 GPS 检测点精度、接入点发射范围不均匀、采样数 $N$ 影响，估计可能偏差数十米，
+且接入点频繁变动；Wigle 数据库靠众包维护。
+
+\subsection*{5.7.3 节点的逻辑定位（Logical positioning of nodes）}
+与其求绝对位置，不如用基于邻近性的\textbf{逻辑位置}：在 $m$ 维几何空间中给每个节点一个坐标，
+使空间距离反映真实性能指标（最简单是节点间延迟）。这类系统称
+\textbf{Network Coordinates System（NCS）}。应用包括 CDN 把请求重定向到最近的副本服务器、
+最优副本放置、以及基于位置的 \textbf{position-based routing}（只用位置信息转发，
+无须把链路信息传播到全网）。
+
+\medskip\noindent 集中式定位需 $m+1$ 个已知位置的距离度量（二维需三个节点解三个二次方程）。
+但测得距离常\textbf{不自洽}，且 Internet 延迟可能违反\textbf{三角不等式}
+$d(P,R) \le d(P,Q) + d(Q,R)$，故通常无法完全消除不一致。Ng \& Zhang（2002）用
+$N$ 个 \textbf{landmark}，由中心节点最小化聚合误差为各 landmark 求坐标；
+实践表明 $m$ 可小到 6 或 7，任意两节点用坐标算出的距离与真实延迟相差不超过 2 倍。
+去中心化的 \textbf{Vivaldi} 把节点看成用弹簧相连：误差 $|\tilde{d}-\hat{d}|$ 表示位移程度，
+力 $\vec{F}_{ij} = (\tilde{d}(P_i,P_j) - \hat{d}(P_i,P_j)) \times u(\vec{x}_i - \vec{x}_j)$，
+节点沿力方向微调位置，系统最终收敛到聚合误差最小的组织；关键是步长 $\delta$ 要自适应
+（误差大则大、误差小则小），否则会振荡或收敛过慢。
+
+\begin{closeread}
+\pair{When looking at large distributed systems that are dispersed across a wide-area network, it is often necessary to take proximity into account.}{在考察横跨广域网的大规模分布式系统时，往往需要把邻近性纳入考虑。}
+\pair{GPS uses up to 72 satellites, each circulating in an orbit at a height of approximately 20,000 km.}{GPS 使用至多 72 颗卫星，每颗在约 20,000 公里高的轨道上运行。}
+\pair{In geometric overlay networks each node is given a position in an m-dimensional geometric space, such that the distance between two nodes in that space reflects a real-world performance metric.}{在几何覆盖网中，每个节点被赋予 $m$ 维几何空间中的一个位置，使该空间中两节点间的距离能反映真实世界的性能指标。}
+\end{closeread}
+
+\origin{§5.7，原书 p.315–322（图 5.36 二维定位、图 5.37 一维不一致距离、GPS/landmark/Vivaldi 原理）}
+
+\sechead{5.8 Summary}{小结}
+
+\begin{itemize}
+  \item 同步的本质是“在正确的时间做正确的事”。分布式系统没有全局共享时钟，
+        各机器有各自的时间观念。
+  \item 时钟同步都基于交换时钟值并考虑消息往返时间；通信延迟的波动及处理方式
+        在很大程度上决定了同步算法的精度。NTP 用四时间戳估计 offset 与 delay，
+        并按 stratum 分级、渐进调整。
+  \item 绝对时间常非必需，重要的是相关事件的\textbf{顺序}。Lamport 逻辑时钟给事件
+        全局唯一的逻辑时间戳，保证 $a \rightarrow b \Rightarrow C(a) < C(b)$；
+        向量时钟进一步使 $C(a) < C(b)$ 能推出 $a$ \textbf{因果}先于 $b$。
+  \item \textbf{分布式互斥}保证任一时刻至多一个进程访问共享资源。用协调者最易实现；
+        完全分布式算法虽存在，但通常更易受通信与进程失败影响。
+  \item 需要某进程充当协调者而该角色又不固定时，由\textbf{选举算法}决定（bully、ring、
+        ZooKeeper、Raft）；无许可区块链中的选举则用 PoW/PoS。
+  \item gossip 协调的关键是能从整个覆盖网中\textbf{随机}选 peer，可用 gossip 实现
+        peer-sampling 服务；结合对 partial view 条目的选择性替换即可高效构造结构化覆盖网。
+  \item \textbf{分布式事件匹配}是发布-订阅的核心。集中式实现简单；一旦要分散负载，
+        就必须预先决定哪个节点负责哪部分订阅，而这对基于内容的匹配尤为困难，
+        需要高级过滤技术。
+  \item \textbf{定位}把节点放入几何覆盖网，使几何距离可近似节点间延迟，方法与 GPS 求位置、
+        时间高度相似。
+\end{itemize}
+
+\begin{actions}
+  \item 读原书第 5 章，重点看图 5.1（时钟偏差导致乱序）、图 5.7（Lamport 修正时钟）、
+        图 5.12（向量时钟捕获因果）、图 5.18（四种互斥算法对比）、图 5.20（bully 选举）、
+        图 5.27（gossip 生成 torus）、图 5.30（入度分布暴露攻击）。
+  \item 用一个三进程时序图，手动给事件标 Lamport 时间戳与向量时钟，验证
+        “$C(a)<C(b)$ 不蕴含 $a$ 因果先于 $b$”，而向量时钟可以判断。
+  \item 对比集中式、分布式、token ring、去中心化四种互斥：在“消息数、失败点、
+        是否可能饥饿”三个维度上各打分，判断你的场景更适合哪一种。
+  \item 推演一次 Raft 选举：五台服务器、随机超时，说明为什么“通常只剩一个 candidate”。
+  \item 用 gossip 平均法估算系统规模：若某节点收敛值为 $v_i$，系统规模约为 $1/v_i$；
+        再思考节点频繁进出时 epoch 如何避免估计失真。
+  \item 对你熟悉的发布-订阅系统（如消息队列），判断它属于 topic-based 还是 content-based，
+        并估计若改为基于内容匹配，瓶颈会出现在哪里。
+\end{actions}
